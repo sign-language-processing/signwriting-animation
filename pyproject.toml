@@ -27,7 +27,6 @@ disable = [
     "C0115", # Missing class docstring
     "C0116", # Missing function or method docstring
 ]
-good-names = ["ms"]
 
 [tool.setuptools]
 packages = [

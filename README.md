@@ -17,6 +17,9 @@ To animate a SignWriting FSW sequence into a `.pose` file:
 signwriting_to_pose --signwriting="M525x535S2e748483x510S10011501x466S2e704510x500S10019476x475" --pose="example.pose"
 ```
 
+When generating full sentences, it is recommended to post-process the `.pose` files using 
+[fluent-pose-synthesis](https://github.com/sign-language-processing/fluent-pose-synthesis).
+
 ### Examples
 
 (These examples are taken from the DSGS Vokabeltrainer)
