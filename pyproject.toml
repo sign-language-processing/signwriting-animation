@@ -1,0 +1,42 @@
+[project]
+name = "signwriting-animation"
+description = "Animate SignWriting into skeletal poses"
+version = "0.0.1"
+authors = [
+    { name = "Amit Moryossef", email = "amitmoryossef@gmail.com" },
+]
+readme = "README.md"
+dependencies = [
+    "pose-format",
+    "git+https://github.com/sign-language-processing/signwriting",
+]
+
+dev = [
+    "pytest",
+    "pylint"
+]
+
+[tool.yapf]
+based_on_style = "google"
+column_limit = 120
+
+[tool.pylint]
+max-line-length = 120
+disable = [
+    "C0114", # Missing module docstring
+    "C0115", # Missing class docstring
+    "C0116", # Missing function or method docstring
+]
+good-names = ["ms"]
+
+[tool.setuptools]
+packages = [
+    "signwriting_animation"
+]
+
+[tool.pytest.ini_options]
+addopts = "-v"
+testpaths = ["signwriting_animation"]
+
+[project.scripts]
+signwriting_to_pose = "signwriting_animation.bin:main"
