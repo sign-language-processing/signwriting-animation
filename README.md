@@ -5,6 +5,12 @@ This project aims to automatically animate SignWriting into skeletal poses.
 This is the reverse
 of [signwriting-transcription](https://github.com/sign-language-processing/signwriting-transcription).
 
+We would ideally like to have to implementations:
+
+- [diffusion](signwriting_animation/diffusion) - a diffusion-based method to animate SignWriting
+- [translation](signwriting_animation/translation) - a translation-based method to animate SignWriting 
+  using the [sign-vq](https://github.com/sign-language-processing/sign-vq) model.
+
 ## Usage
 
 ```bash
@@ -17,7 +23,7 @@ To animate a SignWriting FSW sequence into a `.pose` file:
 signwriting_to_pose --signwriting="M525x535S2e748483x510S10011501x466S2e704510x500S10019476x475" --pose="example.pose"
 ```
 
-When generating full sentences, it is recommended to post-process the `.pose` files using 
+When generating full sentences, it is recommended to post-process the `.pose` files using
 [fluent-pose-synthesis](https://github.com/sign-language-processing/fluent-pose-synthesis).
 
 ### Examples
