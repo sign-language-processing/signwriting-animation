@@ -11,6 +11,7 @@ dependencies = [
     "signwriting @ git+https://github.com/sign-language-processing/signwriting",
 ]
 
+[project.optional-dependencies]
 dev = [
     "pytest",
     "pylint"
