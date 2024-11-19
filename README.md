@@ -26,17 +26,11 @@ signwriting_to_pose --signwriting="M525x535S2e748483x510S10011501x466S2e704510x5
 When generating full sentences, it is recommended to post-process the `.pose` files using
 [fluent-pose-synthesis](https://github.com/sign-language-processing/fluent-pose-synthesis).
 
-### Examples
+### Data
 
-(These examples are taken from the DSGS Vokabeltrainer)
+The full data is available in [sign/data](https://github.com/sign/data/tree/main/signwriting-transcription). These examples are taken from the DSGS Vokabeltrainer:
 
 |             |                                                                    00004                                                                     |                                                                    00007                                                                     |                                                                    00015                                                                     |
 |:-----------:|:--------------------------------------------------------------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------------------------------------------------------------------:|
 | SignWriting | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00004.png?raw=true" width="50px">  | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00007.png?raw=true" width="50px">  | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00015.png?raw=true" width="50px">  |
 |    Video    | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00004.gif?raw=true" width="150px"> | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00007.gif?raw=true" width="150px"> | <img src="https://github.com/sign/data/blob/main/signwriting-transcription/examples/00015.gif?raw=true" width="150px"> |
-
-## Data
-
-We use the same data as in
-[signwriting-transcription](https://github.com/sign-language-processing/signwriting-transcription).
-
