@@ -8,6 +8,18 @@ from pose_format import Pose
 
 class PosePredictionDataset(Dataset):
     def __init__(self, data_dir, segmentation_csv, past_frames=40, future_frames=20, with_metadata=False):
+    """
+    Dataset for SignWriting skeletal pose animation prediction.
+    
+    Args:
+        csv_path (str or Path): Path to the CSV file containing segmentation information
+                                with columns: ['pose', 'start', 'end'].
+        data_dir (str or Path): Path to the directory containing raw .pose files.
+        past_frames (int): Number of frames used as input (past pose).
+        future_frames (int): Number of frames to be predicted (target pose).
+        dtype (np.dtype): Data type for the pose arrays. Default is np.float32.
+        with_metadata (bool): Whether to include pose metadata (e.g., FPS, width, height). Default: False.
+    """
         self.data_dir = data_dir
         self.with_metadata = with_metadata
         self.past_frames = past_frames
