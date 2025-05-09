@@ -38,10 +38,17 @@ Datasets required:
 ```
 cd signwriting-animation/signwriting_animation
 
+# fine-tune embedding model
+export EMBEDDING_MODEL_FOLDER=<set to desired folder to store trained embedding model>
+python data/train_embedding_model.py --transcription_csv_path $SIGNWRITING_TRANSCRIPTION_CSV_PATH
+                                     --model_folder $EMBEDDING_MODEL_FOLDER
+
+
 # generate SignWriting images and corresponding embeddings
 export EMBEDDINGS_FOLDER=<set to desired folder to store embeddings>
 mkdir -p $EMBEDDINGS_FOLDER
 python data/prepare_embeddings.py --poses $POSE_SEQUENCES_FOLDER 
                                   --transcription_csv_path $SIGNWRITING_TRANSCRIPTION_CSV_PATH 
+                                  --embedding_model_weights_path $EMBEDDING_MODEL_FOLDER/embedding_model.pth
                                   --output $EMBEDDINGS_FOLDER
 ```

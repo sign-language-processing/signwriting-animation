@@ -12,9 +12,13 @@ from signwriting.formats.swu_to_fsw import swu2fsw
 
 
 class EmbeddingEncoder:
-    def __init__(self):
+    def __init__(self, embedding_model_weights_path=None):
         self.model, self.preprocess, self.tokenizer = \
             open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+
+        if embedding_model_weights_path is not None:
+            # TODO: load custom model weights
+            pass
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = self.model.to(self.device)
@@ -85,6 +89,8 @@ def main():
                         help='Path to pose sequences folder')
     parser.add_argument('--transcription_csv_path', type=str,
                         help='Path to SignWriting transcription csv')
+    parser.add_argument('--embedding_model_weights_path', type=str, required=False,
+                        help='Path to embedding model weights')
     parser.add_argument('--output', type=str,
                         help='Path to output directory to store embeddings')
     args = parser.parse_args()
@@ -97,7 +103,7 @@ def main():
     embeddings_path = output_folder / 'signwriting_image_embeddings.npy'
     embeddings_file_ids_path = output_folder / 'embedding_file_ids.csv'
 
-    embedding_func = EmbeddingEncoder()
+    embedding_func = EmbeddingEncoder(embedding_model_weights_path=args.embedding_model_weights_path)
     df_file_ids, embeddings = generate_embeddings(embedding_func,
                                                   pose_data,
                                                   output_folder,
