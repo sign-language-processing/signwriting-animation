@@ -33,11 +33,11 @@ class EmbeddingEncoder:
         return embeddings_batch[0, ...]
 
 
-def infer_embeddings(embedding_func: callable,
-                     pose_data: list,
-                     output_folder: str,
-                     embeddings_file_ids_path: str,
-                     embeddings_path: str) -> (pd.DataFrame, np.array):
+def generate_embeddings(embedding_func: callable,
+                        pose_data: list,
+                        output_folder: str,
+                        embeddings_file_ids_path: str,
+                        embeddings_path: str) -> (pd.DataFrame, np.array):
 
     file_ids = []
     embeddings = []
@@ -90,16 +90,15 @@ def main():
     embeddings_path = os.path.join(output_folder, 'signwriting_image_embeddings.npy')
     embeddings_file_ids_path = os.path.join(output_folder, "embedding_file_ids.csv")
 
-    create_embeddings = False    # True=generate embeddings, False=load embeddings
+    create_embeddings = False
 
-    # fsw = "AS10011S10019S2e704S2e748M525x535S2e748483x510S10011501x466S20544510x500S10019476x475"
     if create_embeddings:
         embedding_func = EmbeddingEncoder()
-        df_file_ids, embeddings = infer_embeddings(embedding_func,
-                                                   pose_data,
-                                                   output_folder,
-                                                   embeddings_file_ids_path,
-                                                   embeddings_path)
+        df_file_ids, embeddings = generate_embeddings(embedding_func,
+                                                      pose_data,
+                                                      output_folder,
+                                                      embeddings_file_ids_path,
+                                                      embeddings_path)
 
     else:
         df_file_ids, embeddings = load_embeddings(embeddings_file_ids_path,
