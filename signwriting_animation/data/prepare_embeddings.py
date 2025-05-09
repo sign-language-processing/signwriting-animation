@@ -1,6 +1,6 @@
 from csv import DictReader
 import argparse
-import os
+from pathlib import Path
 import torch
 import open_clip
 from PIL import Image
@@ -32,21 +32,21 @@ class EmbeddingEncoder:
 
 def generate_embeddings(embedding_func: callable,
                         pose_data: list,
-                        output_folder: str,
-                        embeddings_file_ids_path: str,
-                        embeddings_path: str) -> (pd.DataFrame, np.array):
+                        output_folder: Path,
+                        embeddings_file_ids_path: Path,
+                        embeddings_path: Path) -> (pd.DataFrame, np.array):
 
     file_ids = []
     embeddings = []
 
-    for sample in tqdm(pose_data[:1000]):
-        file_id = os.path.splitext(sample['pose'])[0]
+    for sample in tqdm(pose_data):
+        file_id = Path(sample['pose']).stem
         try:
             # generate SignWriting image from SignWriting code sequence
             swu = sample["text"]
             fsw = swu2fsw(swu)
             im = signwriting_to_image(fsw)
-            im.save(os.path.join(output_folder, f"{file_id}.png"))
+            im.save(output_folder / f"{file_id}.png")
 
             image = im.convert('RGB')
 
@@ -93,9 +93,9 @@ def main():
     with open(args.transcription_csv_path, "r", encoding="utf-8") as f:
         pose_data = list(DictReader(f))
 
-    output_folder = args.output
-    embeddings_path = os.path.join(output_folder, 'signwriting_image_embeddings.npy')
-    embeddings_file_ids_path = os.path.join(output_folder, "embedding_file_ids.csv")
+    output_folder = Path(args.output)
+    embeddings_path = output_folder / 'signwriting_image_embeddings.npy'
+    embeddings_file_ids_path = output_folder / 'embedding_file_ids.csv'
 
     embedding_func = EmbeddingEncoder()
     df_file_ids, embeddings = generate_embeddings(embedding_func,
