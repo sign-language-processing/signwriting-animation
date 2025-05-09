@@ -1,4 +1,5 @@
 from csv import DictReader
+import argparse
 from matplotlib import pyplot as plt
 import torch
 import open_clip
@@ -83,10 +84,20 @@ def load_embeddings(embeddings_file_ids_path: str, embeddings_path: str) -> (pd.
 
 
 def main():
-    with open("signwriting-transcription/data.csv", "r", encoding="utf-8") as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--poses', type=str,
+                        help='Path to pose sequences folder')
+    parser.add_argument('--transcription_csv_path', type=str,
+                        help='Path to SignWriting transcription csv')
+    parser.add_argument('--output', type=str,
+                        help='Path to output directory')
+    args = parser.parse_args()
+
+
+    with open(args.transcription_csv_path, "r", encoding="utf-8") as f:
         pose_data = list(DictReader(f))
 
-    output_folder = '/home/shaun/Dropbox/sign_language/datasets/poses/generated/signwriting_images_and_embeddings'
+    output_folder = args.output
     embeddings_path = os.path.join(output_folder, 'signwriting_image_embeddings.npy')
     embeddings_file_ids_path = os.path.join(output_folder, "embedding_file_ids.csv")
 

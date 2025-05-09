@@ -24,11 +24,16 @@ git clone https://github.com/sign/data.git
 ```
 
 Datasets required:
-* [Pose sequences](https://github.com/sign/data/tree/main/signwriting-transcription/README.md)
-  * Download the pose sequences and unzip   ("pose_sequences_folder")
+* [Pose sequences](https://github.com/sign/data/tree/main/signwriting-transcription/README.md#poses)
+  * Download the pose sequences and unzip
+  * `export POSE_SEQUENCES_FOLDER=<set to the unzipped folder>`
 * SignWriting transcription data:
-  * Stored in the repo at: `data/signwriting-transcription/data.csv` ("signwriting_transcription_csv_path")
+  * Stored in the repo at: `~/sign-language/data/signwriting-transcription/data.csv`
+  * `export SIGNWRITING_TRANSCRIPTION_CSV_PATH=<set to the csv path>`
 
 ```
-python data/prepare_embeddings.py
+# generate SignWriting images and corresponding embeddings
+python data/prepare_embeddings.py --poses $POSE_SEQUENCES_FOLDER 
+                                  --transcription_csv_path $SIGNWRITING_TRANSCRIPTION_CSV_PATH 
+                                  --output $OUTPUT_FOLDER
 ```
