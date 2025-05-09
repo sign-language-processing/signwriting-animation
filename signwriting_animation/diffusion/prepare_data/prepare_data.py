@@ -14,17 +14,30 @@ from signwriting.visualizer.visualize import signwriting_to_image
 from signwriting.formats.swu_to_fsw import swu2fsw
 
 
+class EmbeddingEncoder:
+    def __init__(self):
+        self.model, self.preprocess, self.tokenizer = (
+            open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai'))
 
-def generate_embeddings(pose_data,
-                        output_folder: str,
-                        embeddings_file_ids_path: str,
-                        embeddings_path: str) -> (pd.DataFrame, np.array):
-    # Load the model
-    model, preprocess, tokenizer = (
-        open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai'))
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = self.model.to(self.device)
+        self.model.eval()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
+    def infer(self, im: Image) -> torch.Tensor:
+        # TODO: should make this operate on tensors rather?
+        im_batch = self.preprocess(im).unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            embeddings_batch = self.model.encode_image(im_batch)
+
+        return embeddings_batch[0, ...]
+
+
+def infer_embeddings(embedding_func: callable,
+                     pose_data: list,
+                     output_folder: str,
+                     embeddings_file_ids_path: str,
+                     embeddings_path: str) -> (pd.DataFrame, np.array):
 
     file_ids = []
     embeddings = []
@@ -39,10 +52,8 @@ def generate_embeddings(pose_data,
             im.save(os.path.join(output_folder, f"{file_id}.png"))
 
             image = im.convert('RGB')
-            image = preprocess(image).unsqueeze(0).to(device)
 
-            with torch.no_grad():
-                image_features = model.encode_image(image)
+            image_features = embedding_func(image)
 
             # normalise
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -83,10 +94,12 @@ def main():
 
     # fsw = "AS10011S10019S2e704S2e748M525x535S2e748483x510S10011501x466S20544510x500S10019476x475"
     if create_embeddings:
-        df_file_ids, embeddings = generate_embeddings(pose_data,
-                                                      output_folder,
-                                                      embeddings_file_ids_path,
-                                                      embeddings_path)
+        embedding_func = EmbeddingEncoder()
+        df_file_ids, embeddings = infer_embeddings(embedding_func,
+                                                   pose_data,
+                                                   output_folder,
+                                                   embeddings_file_ids_path,
+                                                   embeddings_path)
 
     else:
         df_file_ids, embeddings = load_embeddings(embeddings_file_ids_path,
