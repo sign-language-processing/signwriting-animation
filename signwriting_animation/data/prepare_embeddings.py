@@ -6,6 +6,7 @@ import open_clip
 from PIL import Image
 import pandas as pd
 import numpy as np
+from typing import Callable
 from tqdm import tqdm
 from signwriting.visualizer.visualize import signwriting_to_image
 from signwriting.formats.swu_to_fsw import swu2fsw
@@ -34,7 +35,7 @@ class EmbeddingEncoder:
         return embeddings_batch[0, ...]
 
 
-def generate_embeddings(embedding_func: callable,
+def generate_embeddings(embedding_func: Callable[[Image], torch.Tensor],
                         pose_data: list,
                         output_folder: Path,
                         embeddings_file_ids_path: Path,
@@ -103,7 +104,7 @@ def main():
     embeddings_path = output_folder / 'signwriting_image_embeddings.npy'
     embeddings_file_ids_path = output_folder / 'embedding_file_ids.csv'
 
-    embedding_func = EmbeddingEncoder(embedding_model_weights_path=args.embedding_model_weights_path)
+    embedding_func = EmbeddingEncoder(embedding_model_weights_path=args.embedding_model_weights_path).infer
     df_file_ids, embeddings = generate_embeddings(embedding_func,
                                                   pose_data,
                                                   output_folder,
