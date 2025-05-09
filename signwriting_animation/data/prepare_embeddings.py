@@ -1,24 +1,20 @@
 from csv import DictReader
 import argparse
-from matplotlib import pyplot as plt
+import os
 import torch
 import open_clip
 from PIL import Image
-import os
 import pandas as pd
 import numpy as np
-from glob import glob
 from tqdm import tqdm
-from pose_format import Pose
-from pose_format.pose_visualizer import PoseVisualizer
 from signwriting.visualizer.visualize import signwriting_to_image
 from signwriting.formats.swu_to_fsw import swu2fsw
 
 
 class EmbeddingEncoder:
     def __init__(self):
-        self.model, self.preprocess, self.tokenizer = (
-            open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai'))
+        self.model, self.preprocess, self.tokenizer = \
+            open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = self.model.to(self.device)
@@ -90,7 +86,7 @@ def main():
     parser.add_argument('--transcription_csv_path', type=str,
                         help='Path to SignWriting transcription csv')
     parser.add_argument('--output', type=str,
-                        help='Path to output directory')
+                        help='Path to output directory to store embeddings')
     args = parser.parse_args()
 
 
@@ -101,20 +97,14 @@ def main():
     embeddings_path = os.path.join(output_folder, 'signwriting_image_embeddings.npy')
     embeddings_file_ids_path = os.path.join(output_folder, "embedding_file_ids.csv")
 
-    create_embeddings = False
-
-    if create_embeddings:
-        embedding_func = EmbeddingEncoder()
-        df_file_ids, embeddings = generate_embeddings(embedding_func,
-                                                      pose_data,
-                                                      output_folder,
-                                                      embeddings_file_ids_path,
-                                                      embeddings_path)
-
-    else:
-        df_file_ids, embeddings = load_embeddings(embeddings_file_ids_path,
+    embedding_func = EmbeddingEncoder()
+    df_file_ids, embeddings = generate_embeddings(embedding_func,
+                                                  pose_data,
+                                                  output_folder,
+                                                  embeddings_file_ids_path,
                                                   embeddings_path)
-        print('loaded embeddings')
+
+    print('Finished generating embeddings')
 
 
 if __name__ == '__main__':

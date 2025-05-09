@@ -8,6 +8,10 @@ then, fine-tune the model on a smaller dataset of sign language videos with Sign
 
 Install dependencies:
 
+```
+pipenv sync
+```
+
 ```bash
 cd ~/sign-language/signwriting-animation/signwriting_animation/diffusion
 
@@ -32,8 +36,12 @@ Datasets required:
   * `export SIGNWRITING_TRANSCRIPTION_CSV_PATH=<set to the csv path>`
 
 ```
+cd signwriting-animation/signwriting_animation
+
 # generate SignWriting images and corresponding embeddings
+export EMBEDDINGS_FOLDER=<set to desired folder to store embeddings>
+mkdir -p $EMBEDDINGS_FOLDER
 python data/prepare_embeddings.py --poses $POSE_SEQUENCES_FOLDER 
                                   --transcription_csv_path $SIGNWRITING_TRANSCRIPTION_CSV_PATH 
-                                  --output $OUTPUT_FOLDER
+                                  --output $EMBEDDINGS_FOLDER
 ```
