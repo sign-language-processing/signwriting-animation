@@ -6,11 +6,7 @@ then, fine-tune the model on a smaller dataset of sign language videos with Sign
 
 ## Set up
 
-Install dependencies:
-
-```
-pipenv sync
-```
+### Install dependencies
 
 ```bash
 cd ~/sign-language/signwriting-animation/signwriting_animation/diffusion
@@ -51,4 +47,15 @@ python data/prepare_embeddings.py --poses $POSE_SEQUENCES_FOLDER
                                   --transcription_csv_path $SIGNWRITING_TRANSCRIPTION_CSV_PATH 
                                   --embedding_model_weights_path $EMBEDDING_MODEL_FOLDER/embedding_model.pth
                                   --output $EMBEDDINGS_FOLDER
+```
+
+# Train
+
+Train [CAMDM](https://github.com/AIGAnimation/CAMDM) to generate pose sequences from SignWriting images:
+
+```
+export $MODEL_FOLDER=<set to desired folder to store trained CAMDM model>
+python diffusion/train.py --poses $POSE_SEQUENCES_FOLDER 
+                          --embedding_data $EMBEDDINGS_FOLDER 
+                          --model_folder $MODEL_FOLDER 
 ```
