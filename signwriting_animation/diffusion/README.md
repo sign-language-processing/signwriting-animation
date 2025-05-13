@@ -21,15 +21,9 @@ pip install .
 ## Prepare data
 
 ```bash
-# clone the data repository
-cd ~/sign-language/
-git clone https://github.com/sign/data.git
-```
+# Setup locations
+export SIGNWRITING_TRANSCRIPTION_CSV_PATH=<set to path.csv>
+export POSE_SEQUENCES_FOLDER=<set to folder/>
 
-Datasets required:
-* [Pose sequences](https://github.com/sign/data/tree/main/signwriting-transcription/README.md#poses)
-  * Download the pose sequences and unzip
-  * `export POSE_SEQUENCES_FOLDER=<set to the unzipped folder>`
-* SignWriting transcription data:
-  * Stored in the repo at: `~/sign-language/data/signwriting-transcription/data.csv`
-  * `export SIGNWRITING_TRANSCRIPTION_CSV_PATH=<set to the csv path>`
+signwriting_animation/diffusion/download_data.sh
+```
