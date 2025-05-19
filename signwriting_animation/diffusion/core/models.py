@@ -3,6 +3,8 @@ import torch
 from torch.nn import functional as F
 import torch.nn as nn
 
+from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess
+
 
 class MotionDiffusion(nn.Module):
     def __init__(self, input_feats, nstyles, njoints, nfeats, rot_req, clip_len,
@@ -110,20 +112,6 @@ class MotionDiffusion(nn.Module):
         return self.forward(x, timesteps, past_motion, traj_pose, traj_trans, style_idx)
 
 
-class MotionProcess(nn.Module):
-    def __init__(self, input_feats, latent_dim):
-        super().__init__()
-        self.input_feats = input_feats
-        self.latent_dim = latent_dim
-        self.poseEmbedding = nn.Linear(self.input_feats, self.latent_dim)
-
-    def forward(self, x):
-        bs, njoints, nfeats, nframes = x.shape
-        x = x.permute((3, 0, 1, 2)).reshape(nframes, bs, njoints * nfeats)
-        x = self.poseEmbedding(x)
-        return x
-
-
 class TrajProcess(nn.Module):
     def __init__(self, input_feats, latent_dim):
         super().__init__()
@@ -136,43 +124,6 @@ class TrajProcess(nn.Module):
         x = x.permute((2, 0, 1))
         x = self.poseEmbedding(x)
         return x
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        # not used in the final model
-        x = x + self.pe[:x.shape[0], :]
-        return self.dropout(x)
-
-
-class TimestepEmbedder(nn.Module):
-    def __init__(self, latent_dim, sequence_pos_encoder):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.sequence_pos_encoder = sequence_pos_encoder
-
-        time_embed_dim = self.latent_dim
-        self.time_embed = nn.Sequential(
-            nn.Linear(self.latent_dim, time_embed_dim),
-            nn.SiLU(),
-            nn.Linear(time_embed_dim, time_embed_dim),
-        )
-
-    def forward(self, timesteps):
-        return self.time_embed(self.sequence_pos_encoder.pe[timesteps]).permute(1, 0, 2)
 
 
 class OutputProcess(nn.Module):
