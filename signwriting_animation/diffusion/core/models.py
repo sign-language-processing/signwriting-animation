@@ -11,8 +11,6 @@ class SignWritingToPoseDiffusion(nn.Module):
                  input_feats: int,
                  keypoints: int,
                  dims: int,
-                 rot_req,
-                 clip_len: int,
                  embedding_arch: str = 'ViT-B-32',
                  latent_dim: int = 256,
                  ff_size: int = 1024,
@@ -28,10 +26,8 @@ class SignWritingToPoseDiffusion(nn.Module):
         """
         Args:
             input_feats: Number of input features (keypoints * dimensions).
-            keypoints:
-            dims:
-            rot_req:
-            clip_len:
+            keypoints: Number of keypoints.
+            dims: Number of dimensions per keypoint.
             embedding_arch: CLIP embedding model architecture
             latent_dim: Dimension of the latent space.
             ff_size: Feed-forward network size.
@@ -50,10 +46,8 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.legacy = legacy
         self.training = True
 
-        self.rot_req = rot_req
         self.dims = dims
         self.keypoints = keypoints
-        self.clip_len = clip_len
         self.input_feats = input_feats
 
         self.latent_dim = latent_dim
@@ -147,7 +141,11 @@ class OutputProcessMLP(nn.Module):
 
     Obtained module from https://github.com/sign-language-processing/fluent-pose-synthesis
     """
-    def __init__(self, input_feats, latent_dim, keypoints, dims, hidden_dim=512): # add hidden_dim as parameter
+    def __init__(self, input_feats: int,
+                 latent_dim: int,
+                 keypoints: int,
+                 dims: int,
+                 hidden_dim=512):
         super().__init__()
         self.input_feats = input_feats
         self.latent_dim = latent_dim
