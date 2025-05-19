@@ -1,6 +1,7 @@
 from typing import Optional
 import torch
 import torch.nn as nn
+import open_clip
 
 from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess
 
@@ -8,11 +9,11 @@ from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionPro
 class SignWritingToPoseDiffusion(nn.Module):
     def __init__(self,
                  input_feats: int,
-                 nstyles: int,
                  keypoints: int,
                  dims: int,
                  rot_req,
                  clip_len: int,
+                 embedding_arch: str = 'ViT-B-32',
                  latent_dim: int = 256,
                  ff_size: int = 1024,
                  num_layers: int = 8,
@@ -27,11 +28,11 @@ class SignWritingToPoseDiffusion(nn.Module):
         """
         Args:
             input_feats: Number of input features (keypoints * dimensions).
-            nstyles:
             keypoints:
             dims:
             rot_req:
             clip_len:
+            embedding_arch: CLIP embedding model architecture
             latent_dim: Dimension of the latent space.
             ff_size: Feed-forward network size.
             num_layers: Number of Transformer layers.
@@ -71,7 +72,7 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
 
         # global conditions
-        self.embed_signwriting = EmbedSignWriting(nstyles, self.latent_dim)
+        self.embed_signwriting = EmbedSignWriting(self.latent_dim, embedding_arch)
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
 
         if self.arch == 'trans_enc':
@@ -172,12 +173,19 @@ class OutputProcessMLP(nn.Module):
 
 
 class EmbedSignWriting(nn.Module):
-    def __init__(self, num_actions, latent_dim):
+    def __init__(self, latent_dim: int, embedding_arch='ViT-B-32'):
         super().__init__()
-        # TODO: replace with CLIP embedding module
-        self.signwriting_embedding = nn.Parameter(torch.randn(num_actions, latent_dim))
+        self.latent_dim = latent_dim
+        self.model = open_clip.create_model(embedding_arch, pretrained='openai')
+        self.proj = None
+        if self.model.visual.output_dim != self.latent_dim:
+            self.proj = nn.Linear(self.model.visual.output_dim, self.latent_dim)
 
-    def forward(self, input):
-        idx = input.to(torch.long)
-        output = self.signwriting_embedding[idx]
-        return output
+    def forward(self, image_batch):
+        # image_batch should be in the format [B, 3, H, W], where H=W=224.
+        embeddings_batch = self.model.encode_image(image_batch)
+
+        if self.proj is not None:
+            embeddings_batch = self.proj(embeddings_batch)
+
+        return embeddings_batch

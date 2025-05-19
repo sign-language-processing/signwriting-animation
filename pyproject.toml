@@ -10,6 +10,7 @@ dependencies = [
     "pose-format",
     "signwriting @ git+https://github.com/sign-language-processing/signwriting",
     "CAMDM @ git+https://github.com/AmitMY/CAMDM",
+    "open_clip_torch"
 ]
 
 [project.optional-dependencies]
