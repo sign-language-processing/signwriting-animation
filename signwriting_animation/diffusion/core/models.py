@@ -1,16 +1,49 @@
-import numpy as np
+from typing import Optional
 import torch
-from torch.nn import functional as F
 import torch.nn as nn
 
 from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, TrajProcess
 
 
 class SignWritingToPoseDiffusion(nn.Module):
-    def __init__(self, input_feats, nstyles, njoints, nfeats, rot_req, clip_len,
-                 latent_dim=256, ff_size=1024, num_layers=8, num_heads=4, dropout=0.2,
-                 ablation=None, activation="gelu", legacy=False,
-                 arch='trans_enc', cond_mask_prob=0, device=None):
+    def __init__(self,
+                 input_feats: int,
+                 nstyles: int,
+                 njoints: int,
+                 nfeats: int,
+                 rot_req,
+                 clip_len: int,
+                 latent_dim: int = 256,
+                 ff_size: int = 1024,
+                 num_layers: int = 8,
+                 num_heads: int = 4,
+                 dropout: float = 0.2,
+                 ablation: Optional[str] = None,
+                 activation: str = "gelu",
+                 legacy: bool = False,
+                 arch: str = "trans_enc",
+                 cond_mask_prob: float = 0,
+                 device: Optional[torch.device] = None):
+        """
+        Args:
+            input_feats: Number of input features (keypoints * dimensions).
+            nstyles:
+            njoints:
+            nfeats:
+            rot_req:
+            clip_len:
+            latent_dim: Dimension of the latent space.
+            ff_size: Feed-forward network size.
+            num_layers: Number of Transformer layers.
+            num_heads: Number of attention heads.
+            dropout: Dropout probability.
+            ablation: Ablation study parameter.
+            activation: Activation function.
+            legacy: Legacy flag.
+            arch: Architecture type: "trans_enc", "trans_dec", or "gru".
+            cond_mask_prob: Condition mask probability for classifier-free guidance (CFG).
+            device: Device to run the model.
+        """
         super().__init__()
 
         self.legacy = legacy
@@ -83,9 +116,12 @@ class SignWritingToPoseDiffusion(nn.Module):
 
         future_motion_emb = self.future_motion_process(x)
 
-        xseq = torch.cat((time_emb, style_emb,
-                          traj_trans_emb, traj_pose_emb,
-                          past_motion_emb, future_motion_emb), axis=0)
+        xseq = torch.cat((time_emb,
+                          style_emb,
+                          traj_trans_emb,
+                          traj_pose_emb,
+                          past_motion_emb,
+                          future_motion_emb), axis=0)
 
         xseq = self.sequence_pos_encoder(xseq)
         output = self.seqEncoder(xseq)[-nframes:]
