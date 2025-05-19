@@ -19,7 +19,6 @@ class SignWritingToPoseDiffusion(nn.Module):
                  dropout: float = 0.2,
                  ablation: Optional[str] = None,
                  activation: str = "gelu",
-                 legacy: bool = False,
                  arch: str = "trans_enc",
                  cond_mask_prob: float = 0,
                  device: Optional[torch.device] = None):
@@ -45,22 +44,12 @@ class SignWritingToPoseDiffusion(nn.Module):
         """
         super().__init__()
 
-        self.legacy = legacy
-        self.training = True
-
         self.dims = dims
         self.keypoints = keypoints
         self.input_feats = input_feats
 
-        self.latent_dim = latent_dim
-        self.ff_size = ff_size
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.dropout = dropout
         self.ablation = ablation
-        self.activation = activation
         self.cond_mask_prob = cond_mask_prob
-        self.arch = arch
 
         # local conditions
         self.future_motion_process = MotionProcess(self.input_feats, self.latent_dim)
@@ -68,37 +57,37 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
 
         # global conditions
-        self.embed_signwriting = EmbedSignWriting(self.latent_dim, embedding_arch)
+        self.embed_signwriting = EmbedSignWriting(latent_dim, embedding_arch)
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
 
-        if self.arch == 'trans_enc':
+        if arch == 'trans_enc':
             print("TRANS_ENC init")
 
-            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
-                                                              nhead=self.num_heads,
-                                                              dim_feedforward=self.ff_size,
-                                                              dropout=self.dropout,
-                                                              activation=self.activation)
+            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=latent_dim,
+                                                              nhead=num_heads,
+                                                              dim_feedforward=ff_size,
+                                                              dropout=dropout,
+                                                              activation=activation)
 
             self.seqEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
-                                                    num_layers=self.num_layers)
-        elif self.arch == 'trans_dec':
+                                                    num_layers=num_layers)
+        elif arch == 'trans_dec':
             print("TRANS_DEC init")
-            seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=self.latent_dim,
-                                                              nhead=self.num_heads,
-                                                              dim_feedforward=self.ff_size,
-                                                              dropout=self.dropout,
+            seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=latent_dim,
+                                                              nhead=num_heads,
+                                                              dim_feedforward=ff_size,
+                                                              dropout=dropout,
                                                               activation=activation)
             self.seqEncoder = nn.TransformerDecoder(seqTransDecoderLayer,
-                                                    num_layers=self.num_layers)
+                                                    num_layers=num_layers)
 
-        elif self.arch == 'gru':
+        elif arch == 'gru':
             print("GRU init")
-            self.seqEncoder = nn.GRU(self.latent_dim, self.latent_dim, num_layers=self.num_layers, batch_first=True)
+            self.seqEncoder = nn.GRU(self.latent_dim, self.latent_dim, num_layers=num_layers, batch_first=True)
         else:
             raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
 
-        self.pose_projection = OutputProcessMLP(self.input_feats, self.latent_dim, self.keypoints, self.dims)
+        self.pose_projection = OutputProcessMLP(self.input_feats, latent_dim, self.keypoints, self.dims)
 
     def forward(self, x, timesteps, past_motion, signwriting_im_batch):
         bs, keypoints, dims, nframes = x.shape
