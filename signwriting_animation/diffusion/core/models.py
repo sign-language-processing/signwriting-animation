@@ -3,10 +3,10 @@ import torch
 from torch.nn import functional as F
 import torch.nn as nn
 
-from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess
+from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, TrajProcess
 
 
-class MotionDiffusion(nn.Module):
+class SignWritingToPoseDiffusion(nn.Module):
     def __init__(self, input_feats, nstyles, njoints, nfeats, rot_req, clip_len,
                  latent_dim=256, ff_size=1024, num_layers=8, num_heads=4, dropout=0.2,
                  ablation=None, activation="gelu", legacy=False,
@@ -110,20 +110,6 @@ class MotionDiffusion(nn.Module):
         past_motion = past_motion * keep_batch_idx.view((bs, 1, 1, 1))
 
         return self.forward(x, timesteps, past_motion, traj_pose, traj_trans, style_idx)
-
-
-class TrajProcess(nn.Module):
-    def __init__(self, input_feats, latent_dim):
-        super().__init__()
-        self.input_feats = input_feats
-        self.latent_dim = latent_dim
-        self.poseEmbedding = nn.Linear(self.input_feats, self.latent_dim)
-
-    def forward(self, x):
-        bs, nfeats, nframes = x.shape
-        x = x.permute((2, 0, 1))
-        x = self.poseEmbedding(x)
-        return x
 
 
 class OutputProcessMLP(nn.Module):
