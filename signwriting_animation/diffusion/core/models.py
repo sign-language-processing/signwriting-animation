@@ -2,7 +2,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, TrajProcess
+from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess
 
 
 class SignWritingToPoseDiffusion(nn.Module):
@@ -68,12 +68,10 @@ class SignWritingToPoseDiffusion(nn.Module):
         # local conditions
         self.future_motion_process = MotionProcess(self.input_feats, self.latent_dim)
         self.past_motion_process = MotionProcess(self.input_feats, self.latent_dim)
-        self.traj_trans_process = TrajProcess(2, self.latent_dim)
-        self.traj_pose_process = TrajProcess(6, self.latent_dim)
         self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
 
         # global conditions
-        self.embed_style = EmbedStyle(nstyles, self.latent_dim)
+        self.embed_signwriting = EmbedSignWriting(nstyles, self.latent_dim)
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
 
         if self.arch == 'trans_enc':
@@ -105,21 +103,17 @@ class SignWritingToPoseDiffusion(nn.Module):
 
         self.output_process = OutputProcessMLP(self.input_feats, self.latent_dim, self.njoints, self.nfeats)
 
-    def forward(self, x, timesteps, past_motion, traj_pose, traj_trans, style_idx):
+    def forward(self, x, timesteps, past_motion, signwriting_image):
         bs, njoints, nfeats, nframes = x.shape
 
         time_emb = self.embed_timestep(timesteps)  # [1, bs, L]
-        style_emb = self.embed_style(style_idx).unsqueeze(0)  # [1, bs, L]
-        traj_trans_emb = self.traj_trans_process(traj_trans)  # [N/2, bs, L]
-        traj_pose_emb = self.traj_pose_process(traj_pose)  # [N/2, bs, L]
+        signwriting_emb = self.embed_signwriting(signwriting_image).unsqueeze(0)  # [1, bs, L]
         past_motion_emb = self.past_motion_process(past_motion)  # [past_frames, bs, L]
 
         future_motion_emb = self.future_motion_process(x)
 
         xseq = torch.cat((time_emb,
-                          style_emb,
-                          traj_trans_emb,
-                          traj_pose_emb,
+                          signwriting_emb,
                           past_motion_emb,
                           future_motion_emb), axis=0)
 
@@ -136,16 +130,14 @@ class SignWritingToPoseDiffusion(nn.Module):
         """
         bs, njoints, nfeats, nframes = x.shape
 
-        style_idx = y['style_idx']
-        past_motion = y['past_motion']
-        traj_pose = y['traj_pose']
-        traj_trans = y['traj_trans']
+        signwriting_image = y['sign_image']
+        past_motion = y['input_pose']
 
         # CFG on past motion
         keep_batch_idx = torch.rand(bs, device=past_motion.device) < (1 - self.cond_mask_prob)
         past_motion = past_motion * keep_batch_idx.view((bs, 1, 1, 1))
 
-        return self.forward(x, timesteps, past_motion, traj_pose, traj_trans, style_idx)
+        return self.forward(x, timesteps, past_motion, signwriting_image)
 
 
 class OutputProcessMLP(nn.Module):
@@ -179,12 +171,13 @@ class OutputProcessMLP(nn.Module):
         return output
 
 
-class EmbedStyle(nn.Module):
+class EmbedSignWriting(nn.Module):
     def __init__(self, num_actions, latent_dim):
         super().__init__()
-        self.action_embedding = nn.Parameter(torch.randn(num_actions, latent_dim))
+        # TODO: replace with CLIP embedding module
+        self.signwriting_embedding = nn.Parameter(torch.randn(num_actions, latent_dim))
 
     def forward(self, input):
         idx = input.to(torch.long)
-        output = self.action_embedding[idx]
+        output = self.signwriting_embedding[idx]
         return output
