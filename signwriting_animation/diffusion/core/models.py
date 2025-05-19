@@ -70,7 +70,7 @@ class MotionDiffusion(nn.Module):
         else:
             raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
 
-        self.output_process = OutputProcess(self.input_feats, self.latent_dim, self.njoints, self.nfeats)
+        self.output_process = OutputProcessMLP(self.input_feats, self.latent_dim, self.njoints, self.nfeats)
 
     def forward(self, x, timesteps, past_motion, traj_pose, traj_trans, style_idx):
         bs, njoints, nfeats, nframes = x.shape
@@ -126,18 +126,32 @@ class TrajProcess(nn.Module):
         return x
 
 
-class OutputProcess(nn.Module):
-    def __init__(self, input_feats, latent_dim, njoints, nfeats):
+class OutputProcessMLP(nn.Module):
+    """
+    Output process for the Sign Language Pose Diffusion model.
+
+    Obtained module from https://github.com/sign-language-processing/fluent-pose-synthesis
+    """
+    def __init__(self, input_feats, latent_dim, njoints, nfeats, hidden_dim=512): # add hidden_dim as parameter
         super().__init__()
         self.input_feats = input_feats
         self.latent_dim = latent_dim
         self.njoints = njoints
         self.nfeats = nfeats
-        self.poseFinal = nn.Linear(self.latent_dim, self.input_feats)
+        self.hidden_dim = hidden_dim # store hidden dimension
+
+        # MLP layers
+        self.mlp = nn.Sequential(
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim // 2, self.input_feats)
+        )
 
     def forward(self, output):
         nframes, bs, d = output.shape
-        output = self.poseFinal(output)
+        output = self.mlp(output)  # use MLP instead of single linear layer
         output = output.reshape(nframes, bs, self.njoints, self.nfeats)
         output = output.permute(1, 2, 3, 0)
         return output
