@@ -9,8 +9,8 @@ class SignWritingToPoseDiffusion(nn.Module):
     def __init__(self,
                  input_feats: int,
                  nstyles: int,
-                 njoints: int,
-                 nfeats: int,
+                 keypoints: int,
+                 dims: int,
                  rot_req,
                  clip_len: int,
                  latent_dim: int = 256,
@@ -28,8 +28,8 @@ class SignWritingToPoseDiffusion(nn.Module):
         Args:
             input_feats: Number of input features (keypoints * dimensions).
             nstyles:
-            njoints:
-            nfeats:
+            keypoints:
+            dims:
             rot_req:
             clip_len:
             latent_dim: Dimension of the latent space.
@@ -50,8 +50,8 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.training = True
 
         self.rot_req = rot_req
-        self.nfeats = nfeats
-        self.njoints = njoints
+        self.dims = dims
+        self.keypoints = keypoints
         self.clip_len = clip_len
         self.input_feats = input_feats
 
@@ -101,10 +101,10 @@ class SignWritingToPoseDiffusion(nn.Module):
         else:
             raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
 
-        self.output_process = OutputProcessMLP(self.input_feats, self.latent_dim, self.njoints, self.nfeats)
+        self.pose_projection = OutputProcessMLP(self.input_feats, self.latent_dim, self.keypoints, self.dims)
 
     def forward(self, x, timesteps, past_motion, signwriting_image):
-        bs, njoints, nfeats, nframes = x.shape
+        bs, keypoints, dims, nframes = x.shape
 
         time_emb = self.embed_timestep(timesteps)  # [1, bs, L]
         signwriting_emb = self.embed_signwriting(signwriting_image).unsqueeze(0)  # [1, bs, L]
@@ -119,16 +119,16 @@ class SignWritingToPoseDiffusion(nn.Module):
 
         xseq = self.sequence_pos_encoder(xseq)
         output = self.seqEncoder(xseq)[-nframes:]
-        output = self.output_process(output)
+        output = self.pose_projection(output)
         return output
 
     def interface(self, x, timesteps, y=None):
         """
-            x: [batch_size, frames, njoints, nfeats], denoted x_t in the paper
+            x: [batch_size, frames, keypoints, dims], denoted x_t in the paper
             timesteps: [batch_size] (int)
             y: a dictionary containing conditions
         """
-        bs, njoints, nfeats, nframes = x.shape
+        bs, keypoints, dims, nframes = x.shape
 
         signwriting_image = y['sign_image']
         past_motion = y['input_pose']
@@ -142,16 +142,16 @@ class SignWritingToPoseDiffusion(nn.Module):
 
 class OutputProcessMLP(nn.Module):
     """
-    Output process for the Sign Language Pose Diffusion model.
+    Output process for the Sign Language Pose Diffusion model: project to pose space.
 
     Obtained module from https://github.com/sign-language-processing/fluent-pose-synthesis
     """
-    def __init__(self, input_feats, latent_dim, njoints, nfeats, hidden_dim=512): # add hidden_dim as parameter
+    def __init__(self, input_feats, latent_dim, keypoints, dims, hidden_dim=512): # add hidden_dim as parameter
         super().__init__()
         self.input_feats = input_feats
         self.latent_dim = latent_dim
-        self.njoints = njoints
-        self.nfeats = nfeats
+        self.keypoints = keypoints
+        self.dims = dims
         self.hidden_dim = hidden_dim # store hidden dimension
 
         # MLP layers
@@ -166,7 +166,7 @@ class OutputProcessMLP(nn.Module):
     def forward(self, output):
         nframes, bs, d = output.shape
         output = self.mlp(output)  # use MLP instead of single linear layer
-        output = output.reshape(nframes, bs, self.njoints, self.nfeats)
+        output = output.reshape(nframes, bs, self.keypoints, self.dims)
         output = output.permute(1, 2, 3, 0)
         return output
 
