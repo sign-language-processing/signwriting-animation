@@ -24,6 +24,8 @@ class SignWritingToPoseDiffusion(nn.Module):
                  cond_mask_prob: float = 0,
                  device: Optional[torch.device] = None):
         """
+        Generates pose sequences conditioned on SignWriting images
+
         Args:
             input_feats: Number of input features (keypoints * dimensions).
             keypoints: Number of keypoints.
@@ -98,13 +100,12 @@ class SignWritingToPoseDiffusion(nn.Module):
 
         self.pose_projection = OutputProcessMLP(self.input_feats, self.latent_dim, self.keypoints, self.dims)
 
-    def forward(self, x, timesteps, past_motion, signwriting_image):
+    def forward(self, x, timesteps, past_motion, signwriting_im_batch):
         bs, keypoints, dims, nframes = x.shape
 
         time_emb = self.embed_timestep(timesteps)  # [1, bs, L]
-        signwriting_emb = self.embed_signwriting(signwriting_image).unsqueeze(0)  # [1, bs, L]
+        signwriting_emb = self.embed_signwriting(signwriting_im_batch)  # [1, bs, L]
         past_motion_emb = self.past_motion_process(past_motion)  # [past_frames, bs, L]
-
         future_motion_emb = self.future_motion_process(x)
 
         xseq = torch.cat((time_emb,
