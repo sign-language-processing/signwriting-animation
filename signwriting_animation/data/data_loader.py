@@ -12,7 +12,7 @@ from pose_format.pose import Pose
 from pose_anonymization.data.normalization import normalize_mean_std
 from pose_format.torch.masked.collator import zero_pad_collator
 
-# Use official signwriting_to_image only
+# Use signwriting_to_image
 from signwriting_evaluation.metrics.clip import signwriting_to_image
 # define CLIP preprocess locally
 from PIL import Image
