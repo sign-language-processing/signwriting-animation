@@ -12,21 +12,23 @@ from PIL import Image
 
 class DynamicPosePredictionDataset(Dataset):
     """
-    Dataset for dynamic on-the-fly sampling of normalized pose data
-    with SignWriting condition images and scalar metadata padded as length-1 tensors.
+    A PyTorch Dataset for dynamic sampling of normalized pose sequences,
+    conditioned on SignWriting images and optional scalar metadata.
+    Each sample includes past and future pose segments, associated masks,
+    and a CLIP-ready rendering of the SignWriting annotation.
     """
-    def __init__(self,data_dir,csv_path,past_frames=40,future_frames=20,with_metadata=True):
+    def __init__(self,data_dir,csv_path,num_past_frames= 40,num_future_frames= 20, with_metadata= True,
+                 clip_model_name: str = "openai/clip-vit-base-patch32",
+    ):
         super().__init__()
         self.data_dir = data_dir
         self.num_past_frames = num_past_frames
         self.num_future_frames = num_future_frames
         self.with_metadata = with_metadata
-
-        df = pd.read_csv(csv_path)
-        self.records = df.to_dict(orient='records')
+        self.records = pd.read_csv(csv_path).to_dict(orient="records")
 
         # Initialize CLIP processor for signwriting images
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
 
     def __len__(self):
         return len(self.records)
@@ -34,9 +36,7 @@ class DynamicPosePredictionDataset(Dataset):
     def __getitem__(self, idx):
         rec = self.records[idx]
         start = rec.get("start", 0)
-        total = rec.get(
-            "end", start + self.num_past_frames + self.num_future_frames
-        )
+        total = rec.get("end", start + self.num_past_frames + self.num_future_frames)
         end = min(start + self.num_past_frames + self.num_future_frames, total)
 
         # Load & normalize pose bytes
@@ -46,32 +46,35 @@ class DynamicPosePredictionDataset(Dataset):
         pose = Pose.read(raw)
         pose = normalize_mean_std(pose)
 
-        data = pose.body.data.data           
-        mask = torch.tensor(pose.body.data.mask, dtype=torch.bool)
+        # Slice the PoseBody, then convert to TorchPose and extract data+mask
+        input_pose_torch = pose.body[max(start, 0): start + self.num_past_frames].torch()
+        target_pose_torch = pose.body[start + self.num_past_frames: start + self.num_past_frames + self.num_future_frames].torch()
 
-        # Slice sequences
-        input_pose = data[max(start, 0): start + self.num_past_frames]
-        target_pose = data[start + self.num_past_frames : start + self.num_past_frames + self.num_future_frames]
-
-        # Invert masks (True=visible)
-        input_mask = torch.logical_not(mask[max(start, 0): start + self.num_past_frames])
-        target_mask = torch.logical_not(mask[start + self.num_past_frames : start + self.num_past_frames + self.num_future_frames])
-
-        # Render SignWriting to PIL
-        sw_text = rec.get("text", "")
-        if sw_text:
-            pil_img = signwriting_to_image(sw_text)
-        else:
+        input_data = input_pose_torch.data.zero_filled().float()
+        input_mask = torch.logical_not(input_pose_torch.data.mask)
+        target_data = target_pose_torch.data.zero_filled().float()
+        target_mask = torch.logical_not(target_pose_torch.data.mask)
+        
+        # Render SignWriting to PIL 
+        sw_text = rec.get("text")
+        if not isinstance(sw_text, str) or not sw_text.strip():
             pil_img = Image.new("RGB", (224, 224), color=(0, 0, 0))
+        else:
+            pil_img = signwriting_to_image(sw_text) 
+                
+        # Ensure valid RGB PIL Image
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        pil_img = pil_img.resize((224, 224))  # Resize to CLIP expected size
 
-        # CLIP preprocessing → tensor [1,3,224,224]
-        clip_inputs = self.clip_processor(images=pil_img, return_tensors="pt")
+        # CLIP preprocessing → [1,3,224,224]
+        clip_inputs = self.clip_processor(images=[pil_img], return_tensors="pt")
         sign_img = clip_inputs.pixel_values.squeeze(0)
 
         sample = {
-            "data": torch.tensor(target_pose, dtype=torch.float32),
+            "data": target_data,
             "conditions": {
-                "input_pose": torch.tensor(input_pose, dtype=torch.float32),
+                "input_pose": input_data,
                 "input_mask": input_mask,
                 "target_mask": target_mask,
                 "sign_image": sign_img,
@@ -93,10 +96,11 @@ class DynamicPosePredictionDataset(Dataset):
 
         return sample
 
-if __name__ == '__main__':
+def main():
     data_dir = "/scratch/yayun/pose_data/raw_poses"
     csv_path = os.path.join(os.path.dirname(data_dir), "data.csv")
-    
+
+    # create dataset & loader
     dataset = DynamicPosePredictionDataset(
         data_dir=data_dir,
         csv_path=csv_path,
@@ -109,15 +113,20 @@ if __name__ == '__main__':
         batch_size=4,
         shuffle=True,
         collate_fn=zero_pad_collator,
-        num_workers=4,
+        num_workers=0,
         pin_memory=False,
     )
+
     batch = next(iter(loader))
-    print('Batch:', batch['data'].shape)
-    print('Input pose:', batch['conditions']['input_pose'].shape)
-    print("Input mask:", batch['conditions']['input_mask'].shape)
-    print("Target mask:", batch['conditions']['target_mask'].shape)
-    print("Sign image:", batch['conditions']['sign_image'].shape)
-    if 'metadata' in batch:
-        for k, v in batch['metadata'].items():
+    print("Batch:", batch["data"].shape)
+    print("Input pose:", batch["conditions"]["input_pose"].shape)
+    print("Input mask:", batch["conditions"]["input_mask"].shape)
+    print("Target mask:", batch["conditions"]["target_mask"].shape)
+    print("Sign image:", batch["conditions"]["sign_image"].shape)
+    if "metadata" in batch:
+        for k, v in batch["metadata"].items():
             print(f"Metadata {k}:", v.shape)
+
+if __name__ == "__main__":
+    main()
+
