@@ -1,7 +1,7 @@
 from typing import Optional
 import torch
 import torch.nn as nn
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPModel
 
 from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, seq_encoder_factory
 
@@ -11,7 +11,7 @@ class SignWritingToPoseDiffusion(nn.Module):
                  input_feats: int,
                  keypoints: int,
                  dims: int,
-                 embedding_arch: str = 'ViT-B-32',
+                 embedding_arch: str = 'openai/clip-vit-base-patch32',
                  latent_dim: int = 256,
                  ff_size: int = 1024,
                  num_layers: int = 8,
@@ -134,15 +134,14 @@ class EmbedSignWriting(nn.Module):
     def __init__(self, latent_dim: int, embedding_arch='openai/clip-vit-base-patch32'):
         super().__init__()
         self.model = CLIPModel.from_pretrained(embedding_arch)
-        self.processor = CLIPProcessor.from_pretrained(embedding_arch)
         self.proj = None
 
         if (embedding_dim := self.model.visual_projection.out_features) != latent_dim:
             self.proj = nn.Linear(embedding_dim, latent_dim)
 
-    def forward(self, image_batch):
+    def forward(self, image_batch: torch.Tensor) -> torch.Tensor:
         # image_batch should be in the format [B, 3, H, W], where H=W=224.
-        embeddings_batch = self.model.encode_image(image_batch)
+        embeddings_batch = self.model.get_image_features(pixel_values=image_batch)
 
         if self.proj is not None:
             embeddings_batch = self.proj(embeddings_batch)
