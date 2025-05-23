@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import open_clip
 
-from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess
+from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, seq_encoder_factory
 
 
 class SignWritingToPoseDiffusion(nn.Module):
@@ -17,7 +17,6 @@ class SignWritingToPoseDiffusion(nn.Module):
                  num_layers: int = 8,
                  num_heads: int = 4,
                  dropout: float = 0.2,
-                 ablation: Optional[str] = None,
                  activation: str = "gelu",
                  arch: str = "trans_enc",
                  cond_mask_prob: float = 0,
@@ -35,59 +34,33 @@ class SignWritingToPoseDiffusion(nn.Module):
             num_layers: Number of Transformer layers.
             num_heads: Number of attention heads.
             dropout: Dropout probability.
-            ablation: Ablation study parameter.
             activation: Activation function.
-            legacy: Legacy flag.
             arch: Architecture type: "trans_enc", "trans_dec", or "gru".
             cond_mask_prob: Condition mask probability for classifier-free guidance (CFG).
             device: Device to run the model.
         """
         super().__init__()
 
-        self.dims = dims
-        self.keypoints = keypoints
-        self.input_feats = input_feats
-
-        self.ablation = ablation
         self.cond_mask_prob = cond_mask_prob
 
         # local conditions
-        self.future_motion_process = MotionProcess(self.input_feats, self.latent_dim)
-        self.past_motion_process = MotionProcess(self.input_feats, self.latent_dim)
-        self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
+        self.future_motion_process = MotionProcess(input_feats, latent_dim)
+        self.past_motion_process = MotionProcess(input_feats, latent_dim)
+        self.sequence_pos_encoder = PositionalEncoding(latent_dim, dropout)
 
         # global conditions
         self.embed_signwriting = EmbedSignWriting(latent_dim, embedding_arch)
-        self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
+        self.embed_timestep = TimestepEmbedder(latent_dim, self.sequence_pos_encoder)
 
-        if arch == 'trans_enc':
-            print("TRANS_ENC init")
+        self.seqEncoder = seq_encoder_factory(arch=arch,
+                                              latent_dim=latent_dim,
+                                              ff_size=ff_size,
+                                              num_layers=num_layers,
+                                              num_heads=num_heads,
+                                              dropout=dropout,
+                                              activation=activation)
 
-            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=latent_dim,
-                                                              nhead=num_heads,
-                                                              dim_feedforward=ff_size,
-                                                              dropout=dropout,
-                                                              activation=activation)
-
-            self.seqEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
-                                                    num_layers=num_layers)
-        elif arch == 'trans_dec':
-            print("TRANS_DEC init")
-            seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=latent_dim,
-                                                              nhead=num_heads,
-                                                              dim_feedforward=ff_size,
-                                                              dropout=dropout,
-                                                              activation=activation)
-            self.seqEncoder = nn.TransformerDecoder(seqTransDecoderLayer,
-                                                    num_layers=num_layers)
-
-        elif arch == 'gru':
-            print("GRU init")
-            self.seqEncoder = nn.GRU(self.latent_dim, self.latent_dim, num_layers=num_layers, batch_first=True)
-        else:
-            raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
-
-        self.pose_projection = OutputProcessMLP(self.input_feats, latent_dim, self.keypoints, self.dims)
+        self.pose_projection = OutputProcessMLP(input_feats, latent_dim, keypoints, dims)
 
     def forward(self, x, timesteps, past_motion, signwriting_im_batch):
         bs, keypoints, dims, nframes = x.shape
@@ -137,19 +110,16 @@ class OutputProcessMLP(nn.Module):
                  dims: int,
                  hidden_dim=512):
         super().__init__()
-        self.input_feats = input_feats
-        self.latent_dim = latent_dim
         self.keypoints = keypoints
         self.dims = dims
-        self.hidden_dim = hidden_dim # store hidden dimension
 
         # MLP layers
         self.mlp = nn.Sequential(
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.Linear(latent_dim, hidden_dim),
             nn.SiLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.Linear(hidden_dim, hidden_dim // 2),
             nn.SiLU(),
-            nn.Linear(self.hidden_dim // 2, self.input_feats)
+            nn.Linear(hidden_dim // 2, input_feats)
         )
 
     def forward(self, output):
@@ -163,11 +133,10 @@ class OutputProcessMLP(nn.Module):
 class EmbedSignWriting(nn.Module):
     def __init__(self, latent_dim: int, embedding_arch='ViT-B-32'):
         super().__init__()
-        self.latent_dim = latent_dim
         self.model = open_clip.create_model(embedding_arch, pretrained='openai')
         self.proj = None
-        if self.model.visual.output_dim != self.latent_dim:
-            self.proj = nn.Linear(self.model.visual.output_dim, self.latent_dim)
+        if self.model.visual.output_dim != latent_dim:
+            self.proj = nn.Linear(self.model.visual.output_dim, latent_dim)
 
     def forward(self, image_batch):
         # image_batch should be in the format [B, 3, H, W], where H=W=224.
