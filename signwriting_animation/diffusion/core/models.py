@@ -8,28 +8,25 @@ from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionPro
 
 class SignWritingToPoseDiffusion(nn.Module):
     def __init__(self,
-                 input_feats: int,
-                 keypoints: int,
-                 dims: int,
+                 num_keypoints: int,
+                 num_dims: int,
                  embedding_arch: str = 'openai/clip-vit-base-patch32',
-                 latent_dim: int = 256,
+                 num_latent_dims: int = 256,
                  ff_size: int = 1024,
                  num_layers: int = 8,
                  num_heads: int = 4,
                  dropout: float = 0.2,
                  activation: str = "gelu",
                  arch: str = "trans_enc",
-                 cond_mask_prob: float = 0,
-                 device: Optional[torch.device] = None):
+                 cond_mask_prob: float = 0):
         """
         Generates pose sequences conditioned on SignWriting images
 
         Args:
-            input_feats: Number of input features (keypoints * dimensions).
-            keypoints: Number of keypoints.
-            dims: Number of dimensions per keypoint.
+            num_keypoints: Number of keypoints.
+            num_dims: Number of dimensions per keypoint.
             embedding_arch: CLIP embedding model architecture
-            latent_dim: Dimension of the latent space.
+            num_latent_dims: Dimension of the latent space.
             ff_size: Feed-forward network size.
             num_layers: Number of Transformer layers.
             num_heads: Number of attention heads.
@@ -37,30 +34,30 @@ class SignWritingToPoseDiffusion(nn.Module):
             activation: Activation function.
             arch: Architecture type: "trans_enc", "trans_dec", or "gru".
             cond_mask_prob: Condition mask probability for classifier-free guidance (CFG).
-            device: Device to run the model.
         """
         super().__init__()
 
         self.cond_mask_prob = cond_mask_prob
 
         # local conditions
-        self.future_motion_process = MotionProcess(input_feats, latent_dim)
-        self.past_motion_process = MotionProcess(input_feats, latent_dim)
-        self.sequence_pos_encoder = PositionalEncoding(latent_dim, dropout)
+        input_feats = num_keypoints * num_dims
+        self.future_motion_process = MotionProcess(input_feats, num_latent_dims)
+        self.past_motion_process = MotionProcess(input_feats, num_latent_dims)
+        self.sequence_pos_encoder = PositionalEncoding(num_latent_dims, dropout)
 
         # global conditions
-        self.embed_signwriting = EmbedSignWriting(latent_dim, embedding_arch)
-        self.embed_timestep = TimestepEmbedder(latent_dim, self.sequence_pos_encoder)
+        self.embed_signwriting = EmbedSignWriting(num_latent_dims, embedding_arch)
+        self.embed_timestep = TimestepEmbedder(num_latent_dims, self.sequence_pos_encoder)
 
         self.seqEncoder = seq_encoder_factory(arch=arch,
-                                              latent_dim=latent_dim,
+                                              latent_dim=num_latent_dims,
                                               ff_size=ff_size,
                                               num_layers=num_layers,
                                               num_heads=num_heads,
                                               dropout=dropout,
                                               activation=activation)
 
-        self.pose_projection = OutputProcessMLP(input_feats, latent_dim, keypoints, dims)
+        self.pose_projection = OutputProcessMLP(num_latent_dims, num_keypoints, num_dims)
 
     def forward(self, x, timesteps, past_motion, signwriting_im_batch):
         bs, keypoints, dims, nframes = x.shape
@@ -82,18 +79,22 @@ class SignWritingToPoseDiffusion(nn.Module):
 
     def interface(self, x, timesteps, y=None):
         """
-            x: [batch_size, frames, keypoints, dims], denoted x_t in the paper
+        Performs classifier-free guidance: runs a forward pass of the diffusion model using either conditional
+        or unconditional mode.
+
+        Args:
+            x: [batch_size, frames, keypoints, dims], denoted x_t in the CAMDM paper
             timesteps: [batch_size] (int)
             y: a dictionary containing conditions
         """
-        bs, keypoints, dims, nframes = x.shape
+        batch_size, num_keypoints, num_dims, num_frames = x.shape
 
         signwriting_image = y['sign_image']
         past_motion = y['input_pose']
 
         # CFG on past motion
-        keep_batch_idx = torch.rand(bs, device=past_motion.device) < (1 - self.cond_mask_prob)
-        past_motion = past_motion * keep_batch_idx.view((bs, 1, 1, 1))
+        keep_batch_idx = torch.rand(batch_size, device=past_motion.device) < (1 - self.cond_mask_prob)
+        past_motion = past_motion * keep_batch_idx.view((batch_size, 1, 1, 1))
 
         return self.forward(x, timesteps, past_motion, signwriting_image)
 
@@ -104,40 +105,40 @@ class OutputProcessMLP(nn.Module):
 
     Obtained module from https://github.com/sign-language-processing/fluent-pose-synthesis
     """
-    def __init__(self, input_feats: int,
-                 latent_dim: int,
-                 keypoints: int,
-                 dims: int,
+    def __init__(self,
+                 num_latent_dims: int,
+                 num_keypoints: int,
+                 num_dims_per_keypoint: int,
                  hidden_dim=512):
         super().__init__()
-        self.keypoints = keypoints
-        self.dims = dims
+        self.num_keypoints = num_keypoints
+        self.num_dims_per_keypoint = num_dims_per_keypoint
 
         # MLP layers
         self.mlp = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+            nn.Linear(num_latent_dims, hidden_dim),
             nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.SiLU(),
-            nn.Linear(hidden_dim // 2, input_feats)
+            nn.Linear(hidden_dim // 2, num_keypoints * num_dims_per_keypoint)
         )
 
     def forward(self, output):
-        nframes, bs, d = output.shape
+        num_frames, batch_size, d = output.shape
         output = self.mlp(output)  # use MLP instead of single linear layer
-        output = output.reshape(nframes, bs, self.keypoints, self.dims)
+        output = output.reshape(num_frames, batch_size, self.num_keypoints, self.num_dims_per_keypoint)
         output = output.permute(1, 2, 3, 0)
         return output
 
 
 class EmbedSignWriting(nn.Module):
-    def __init__(self, latent_dim: int, embedding_arch='openai/clip-vit-base-patch32'):
+    def __init__(self, num_latent_dims: int, embedding_arch='openai/clip-vit-base-patch32'):
         super().__init__()
         self.model = CLIPModel.from_pretrained(embedding_arch)
         self.proj = None
 
-        if (embedding_dim := self.model.visual_projection.out_features) != latent_dim:
-            self.proj = nn.Linear(embedding_dim, latent_dim)
+        if (num_embedding_dims := self.model.visual_projection.out_features) != num_latent_dims:
+            self.proj = nn.Linear(num_embedding_dims, num_latent_dims)
 
     def forward(self, image_batch: torch.Tensor) -> torch.Tensor:
         # image_batch should be in the format [B, 3, H, W], where H=W=224.
