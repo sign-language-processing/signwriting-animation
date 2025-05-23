@@ -15,7 +15,7 @@ cd signwriting-animation/
 # create a virtual environment and install dependencies
 conda create --name sign_diffusion_env python=3.11 -y
 conda activate sign_diffusion_env
-pip install .[dev]
+pip install ".[dev]"
 ```
 
 ## Prepare data
