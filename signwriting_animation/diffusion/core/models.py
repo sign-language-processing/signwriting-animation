@@ -1,7 +1,7 @@
 from typing import Optional
 import torch
 import torch.nn as nn
-import open_clip
+from transformers import CLIPProcessor, CLIPModel
 
 from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionProcess, seq_encoder_factory
 
@@ -131,12 +131,14 @@ class OutputProcessMLP(nn.Module):
 
 
 class EmbedSignWriting(nn.Module):
-    def __init__(self, latent_dim: int, embedding_arch='ViT-B-32'):
+    def __init__(self, latent_dim: int, embedding_arch='openai/clip-vit-base-patch32'):
         super().__init__()
-        self.model = open_clip.create_model(embedding_arch, pretrained='openai')
+        self.model = CLIPModel.from_pretrained(embedding_arch)
+        self.processor = CLIPProcessor.from_pretrained(embedding_arch)
         self.proj = None
-        if self.model.visual.output_dim != latent_dim:
-            self.proj = nn.Linear(self.model.visual.output_dim, latent_dim)
+
+        if (embedding_dim := self.model.visual_projection.out_features) != latent_dim:
+            self.proj = nn.Linear(embedding_dim, latent_dim)
 
     def forward(self, image_batch):
         # image_batch should be in the format [B, 3, H, W], where H=W=224.
