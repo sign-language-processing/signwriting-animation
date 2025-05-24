@@ -28,7 +28,7 @@ class DynamicPosePredictionDataset(Dataset):
     ):
         super().__init__()
 
-        assert split in ['train', 'test']
+        assert split in ['train', 'test', 'dev']
 
         self.data_dir = data_dir
         self.num_past_frames = num_past_frames
