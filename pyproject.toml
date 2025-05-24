@@ -7,10 +7,14 @@ authors = [
 ]
 readme = "README.md"
 dependencies = [
+    "pandas",
+    "torch>=1.11",
     "pose-format",
     "signwriting @ git+https://github.com/sign-language-processing/signwriting",
+    "pose-anonymization @ git+https://github.com/sign-language-processing/pose-anonymization",
+    "signwriting-evaluation @ git+https://github.com/sign-language-processing/signwriting-evaluation",
+    "transformers>=4.25",
     "CAMDM @ git+https://github.com/AmitMY/CAMDM",
-    "transformers"
 ]
 
 [project.optional-dependencies]
