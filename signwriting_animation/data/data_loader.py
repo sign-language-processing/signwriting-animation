@@ -96,7 +96,13 @@ class DynamicPosePredictionDataset(Dataset):
 
         return sample
 
-
+def get_num_workers():
+    """
+    Determine appropriate number of workers based on CPU availability.
+    """
+    cpu_count = os.cpu_count()
+    return 0 if cpu_count is None or cpu_count <= 1 else cpu_count
+    
 def main():
     """
     Run a test batch through the dataset and dataloader.
@@ -116,7 +122,7 @@ def main():
         batch_size=4,
         shuffle=True,
         collate_fn=zero_pad_collator,
-        num_workers=4,
+        num_workers=get_num_workers(),
         pin_memory=False,
     )
 
