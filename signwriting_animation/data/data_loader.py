@@ -46,27 +46,33 @@ class DynamicPosePredictionDataset(Dataset):
         and prepares masked tensors and CLIP-ready images.
         """
         rec = self.records[idx]
-        start = rec.get("start", 0)
-        total = rec.get("end", start + self.num_past_frames + self.num_future_frames)
-        end = min(start + self.num_past_frames + self.num_future_frames, total)
 
         pose_path = os.path.join(self.data_dir, rec["pose"])
         with open(pose_path, "rb") as f:
-            raw = Pose.read(f)
+            # Read only the relevant frames from the pose file (based on time, in milliseconds)
+            raw = Pose.read(f, start_time=rec["start"] or None, end_time=rec["end"] or None)
         pose = normalize_mean_std(raw)
+        
+        # The model expects constant size "input" and "target" windows
+        total_frames = len(pose.body.data)
+        pivot_frame = random.randint(0, total_frames - 1) # Choose a frame to separate the windows
 
-        past_end = start + self.num_past_frames
-        future_end = past_end + self.num_future_frames
-        input_pose = pose.body[max(start, 0):past_end].torch()
-        target_pose = pose.body[past_end:future_end].torch()
+        # Crop pose around the pivot. Window might not be of "constant" size, but it will be padded.
+        input_start = max(0, pivot_frame - self.num_past_frames)
+        input_pose = pose.body[input_start:pivot_frame].torch() # TODO: consider reversing input_pose, since it will be right-padded
+        target_end = min(total_frames, pivot_frame + self.num_future_frames)
+        target_pose = pose.body[pivot_frame:target_end].torch()
 
         input_data = input_pose.data.zero_filled()
         target_data = target_pose.data.zero_filled()
+        
         input_mask = input_pose.data.mask
-        target_mask = target_pose.data.mask
-
         if input_mask.sum() == 0:
-            raise ValueError("Input mask contains no valid frames.")
+            print("Input contains no valid frames.")
+
+        target_mask = target_pose.data.mask
+        if target_mask.sum() == 0:
+            print("Target contains no valid frames.") 
 
         pil_img = signwriting_to_clip_image(rec.get("text", ""))
         sign_img = self.clip_processor(images=pil_img, return_tensors="pt").pixel_values.squeeze(0)
