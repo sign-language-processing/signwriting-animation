@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 import torch
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
@@ -24,7 +25,7 @@ class DynamicPosePredictionDataset(Dataset):
         num_future_frames: int = 20,
         with_metadata: bool = True,
         clip_model_name: str = "openai/clip-vit-base-patch32",
-        split: str ='train'
+        split: str = Literal['train', 'test', 'dev']
     ):
         super().__init__()
 
