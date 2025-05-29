@@ -1,4 +1,3 @@
-from typing import Optional
 import torch
 import torch.nn as nn
 from transformers import CLIPModel
@@ -9,7 +8,7 @@ from CAMDM.network.models import PositionalEncoding, TimestepEmbedder, MotionPro
 class SignWritingToPoseDiffusion(nn.Module):
     def __init__(self,
                  num_keypoints: int,
-                 num_dims: int,
+                 num_dims_per_keypoint: int,
                  embedding_arch: str = 'openai/clip-vit-base-patch32',
                  num_latent_dims: int = 256,
                  ff_size: int = 1024,
@@ -20,11 +19,11 @@ class SignWritingToPoseDiffusion(nn.Module):
                  arch: str = "trans_enc",
                  cond_mask_prob: float = 0):
         """
-        Generates pose sequences conditioned on SignWriting images
+        Generates pose sequences conditioned on SignWriting images and past motion
 
         Args:
             num_keypoints: Number of keypoints.
-            num_dims: Number of dimensions per keypoint.
+            num_dims_per_keypoint: Number of dimensions per keypoint (3 for 3D space)
             embedding_arch: CLIP embedding model architecture
             num_latent_dims: Dimension of the latent space.
             ff_size: Feed-forward network size.
@@ -40,7 +39,7 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.cond_mask_prob = cond_mask_prob
 
         # local conditions
-        input_feats = num_keypoints * num_dims
+        input_feats = num_keypoints * num_dims_per_keypoint
         self.future_motion_process = MotionProcess(input_feats, num_latent_dims)
         self.past_motion_process = MotionProcess(input_feats, num_latent_dims)
         self.sequence_pos_encoder = PositionalEncoding(num_latent_dims, dropout)
@@ -57,15 +56,15 @@ class SignWritingToPoseDiffusion(nn.Module):
                                               dropout=dropout,
                                               activation=activation)
 
-        self.pose_projection = OutputProcessMLP(num_latent_dims, num_keypoints, num_dims)
+        self.pose_projection = OutputProcessMLP(num_latent_dims, num_keypoints, num_dims_per_keypoint)
 
     def forward(self, x, timesteps, past_motion, signwriting_im_batch):
-        bs, keypoints, dims, nframes = x.shape
+        batch_size, num_keypoints, num_dims_per_keypoint, num_frames = x.shape
 
-        time_emb = self.embed_timestep(timesteps)  # [1, bs, L]
-        signwriting_emb = self.embed_signwriting(signwriting_im_batch)  # [1, bs, L]
-        past_motion_emb = self.past_motion_process(past_motion)  # [past_frames, bs, L]
-        future_motion_emb = self.future_motion_process(x)
+        time_emb = self.embed_timestep(timesteps)  # [1, batch_size, num_latent_dims]
+        signwriting_emb = self.embed_signwriting(signwriting_im_batch)  # [1, batch_size, num_latent_dims]
+        past_motion_emb = self.past_motion_process(past_motion)  # [past_frames, batch_size, num_latent_dims]
+        future_motion_emb = self.future_motion_process(x)  # [future_frames, batch_size, num_latent_dims]
 
         xseq = torch.cat((time_emb,
                           signwriting_emb,
@@ -73,7 +72,7 @@ class SignWritingToPoseDiffusion(nn.Module):
                           future_motion_emb), axis=0)
 
         xseq = self.sequence_pos_encoder(xseq)
-        output = self.seqEncoder(xseq)[-nframes:]
+        output = self.seqEncoder(xseq)[-num_frames:]
         output = self.pose_projection(output)
         return output
 
@@ -87,7 +86,9 @@ class SignWritingToPoseDiffusion(nn.Module):
             timesteps: [batch_size] (int)
             y: a dictionary containing conditions
         """
-        batch_size, num_keypoints, num_dims, num_frames = x.shape
+        # batch_size, num_keypoints, num_dims, num_frames = x.shape
+        batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint = x.shape     # TODO: maybe this order is wrong, since it will affect the order in the MotionProcess function? Use same order used in MotionProcess?
+        # torch.ones(batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint)
 
         signwriting_image = y['sign_image']
         past_motion = y['input_pose']
@@ -126,8 +127,9 @@ class OutputProcessMLP(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: (input) [num_frames, batch_size, num_latent_dims]
-            x: (output) [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+            x: [num_frames, batch_size, num_latent_dims]
+        Returns:
+            x: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
         """
         num_frames, batch_size, num_latent_dims = x.shape
         x = self.mlp(x)  # use MLP instead of single linear layer
@@ -146,8 +148,9 @@ class OutputProcess(nn.Module):
     def forward(self, output):
         """
         Args:
-            output: (input) [num_frames, batch_size, num_latent_dims]
-            output: (output) [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+            output: [num_frames, batch_size, num_latent_dims]
+        Returns:
+            output: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
         """
         num_frames, batch_size, num_latent_dims = output.shape
         output = self.poseFinal(output)
