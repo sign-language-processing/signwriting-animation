@@ -166,10 +166,16 @@ class EmbedSignWriting(nn.Module):
             self.proj = nn.Linear(num_embedding_dims, num_latent_dims)
 
     def forward(self, image_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            image_batch: [batch_size, 3, 224, 224]
+        Returns:
+            embeddings_batch: [1, batch_size, num_latent_dims]
+        """
         # image_batch should be in the format [B, 3, H, W], where H=W=224.
         embeddings_batch = self.model.get_image_features(pixel_values=image_batch)
 
         if self.proj is not None:
             embeddings_batch = self.proj(embeddings_batch)
 
-        return embeddings_batch
+        return embeddings_batch[None, ...]

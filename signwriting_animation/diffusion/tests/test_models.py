@@ -11,7 +11,6 @@ def test_output_process_mlp_model():
     batch_size = 4
     num_latent_dims = 12
 
-
     model = models.OutputProcessMLP(
         num_latent_dims=num_latent_dims,
         num_keypoints=num_keypoints,
@@ -44,6 +43,8 @@ def test_output_process_model():
 def test_embed_signwriting_model_output_shape(latent_dim):
     model = models.EmbedSignWriting(num_latent_dims=latent_dim,
                                     embedding_arch='openai/clip-vit-base-patch32')
-    image_batch = torch.ones(4, 3, 224, 224)
+    batch_size = 4
+    image_batch = torch.ones(batch_size, 3, 224, 224)
 
-    assert model(image_batch).shape == (4, latent_dim)
+    assert model(image_batch).shape == (1, batch_size, latent_dim)
+
