@@ -19,20 +19,41 @@ class SignWritingToPoseDiffusion(nn.Module):
                  arch: str = "trans_enc",
                  cond_mask_prob: float = 0):
         """
-        Generates pose sequences conditioned on SignWriting images and past motion
+        Generates pose sequences conditioned on SignWriting images and past motion using a diffusion model.
 
         Args:
-            num_keypoints: Number of keypoints.
-            num_dims_per_keypoint: Number of dimensions per keypoint (3 for 3D space)
-            embedding_arch: CLIP embedding model architecture
-            num_latent_dims: Dimension of the latent space.
-            ff_size: Feed-forward network size.
-            num_layers: Number of Transformer layers.
-            num_heads: Number of attention heads.
-            dropout: Dropout probability.
-            activation: Activation function.
-            arch: Architecture type: "trans_enc", "trans_dec", or "gru".
-            cond_mask_prob: Condition mask probability for classifier-free guidance (CFG).
+            num_keypoints (int):
+                Number of keypoints in the pose representation.
+
+            num_dims_per_keypoint (int):
+                Number of spatial dimensions per keypoint (e.g., 2 for 2D, 3 for 3D).
+
+            embedding_arch (str):
+                Architecture used for extracting image embeddings (e.g., CLIP variants).
+
+            num_latent_dims (int):
+                Dimensionality of the latent representation used by the model.
+
+            ff_size (int):
+                Size of the feed-forward network in the Transformer blocks.
+
+            num_layers (int):
+                Number of Transformer encoder/decoder layers.
+
+            num_heads (int):
+                Number of attention heads in each multi-head attention block.
+
+            dropout (float):
+                Dropout rate applied during training.
+
+            activation (str):
+                Activation function used in the Transformer (e.g., "gelu", "relu").
+
+            arch (str):
+                Architecture type used in the diffusion model. Options: "trans_enc", "trans_dec", or "gru".
+
+            cond_mask_prob (float):
+                Probability of masking conditional inputs for classifier-free guidance (CFG).
         """
         super().__init__()
 
@@ -59,6 +80,33 @@ class SignWritingToPoseDiffusion(nn.Module):
         self.pose_projection = OutputProcessMLP(num_latent_dims, num_keypoints, num_dims_per_keypoint)
 
     def forward(self, x, timesteps, past_motion, signwriting_im_batch):
+        """
+        Performs classifier-free guidance by running a forward pass of the diffusion model in either
+        conditional or unconditional mode.
+
+        Args:
+            x (Tensor):
+                The noisy input tensor at the current diffusion step, denoted as x_t in the CAMDM paper.
+                Shape: [batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint].
+
+            timesteps (Tensor):
+                Diffusion timesteps for each sample in the batch.
+                Shape: [batch_size], dtype: int.
+
+            past_motion (Tensor):
+                Tensor containing motion history information.
+                Shape: [batch_size, num_keypoints, num_dims_per_keypoint, num_past_frames].
+
+            signwriting_im_batch (Tensor):
+                Batch of rendered SignWriting images.
+                Shape: [batch_size, 3, 224, 224].
+
+        Returns:
+            Tensor:
+                The predicted denoised motion at the current timestep.
+                Shape: [batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint].
+        """
+
         batch_size, num_keypoints, num_dims_per_keypoint, num_frames = x.shape
 
         time_emb = self.embed_timestep(timesteps)  # [1, batch_size, num_latent_dims]
@@ -78,17 +126,30 @@ class SignWritingToPoseDiffusion(nn.Module):
 
     def interface(self, x, timesteps, y=None):
         """
-        Performs classifier-free guidance: runs a forward pass of the diffusion model using either conditional
-        or unconditional mode.
+        Performs classifier-free guidance by running a forward pass of the diffusion model
+        in either conditional or unconditional mode. Extracts conditioning inputs from `y` and
+        applies random masking to simulate unconditional sampling.
 
         Args:
-            x: [batch_size, frames, keypoints, dims], denoted x_t in the CAMDM paper
-            timesteps: [batch_size] (int)
-            y: a dictionary containing conditions
+            x (Tensor):
+                The noisy input tensor at the current diffusion step, denoted as x_t in the CAMDM paper.
+                Shape: [batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint].
+
+            timesteps (Tensor):
+                Diffusion timesteps for each sample in the batch.
+                Shape: [batch_size], dtype: int.
+
+            y (dict, optional):
+                Dictionary of conditioning inputs. Must contain:
+                    - 'sign_image': Tensor of shape [batch_size, 3, 224, 224]
+                    - 'input_pose': Tensor of shape [batch_size, num_keypoints, num_dims_per_keypoint, num_past_frames]
+
+        Returns:
+            Tensor:
+                The predicted denoised motion at the current timestep.
+                Shape: [batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint].
         """
-        # batch_size, num_keypoints, num_dims, num_frames = x.shape
-        batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint = x.shape     # TODO: maybe this order is wrong, since it will affect the order in the MotionProcess function? Use same order used in MotionProcess?
-        # torch.ones(batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint)
+        batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint = x.shape
 
         signwriting_image = y['sign_image']
         past_motion = y['input_pose']
@@ -126,10 +187,17 @@ class OutputProcessMLP(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
+        Decodes a sequence of latent vectors into keypoint motion data using a multi-layer perceptron (MLP).
+
         Args:
-            x: [num_frames, batch_size, num_latent_dims]
+            x (Tensor):
+                Input latent tensor.
+                Shape: [num_frames, batch_size, num_latent_dims].
+
         Returns:
-            x: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+            Tensor:
+                Decoded keypoint motion.
+                Shape: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames].
         """
         num_frames, batch_size, num_latent_dims = x.shape
         x = self.mlp(x)  # use MLP instead of single linear layer
@@ -139,18 +207,25 @@ class OutputProcessMLP(nn.Module):
 
 
 class OutputProcess(nn.Module):
-    def __init__(self, latent_dim, num_keypoints, num_dims_per_keypoint):
+    def __init__(self, num_latent_dims, num_keypoints, num_dims_per_keypoint):
         super().__init__()
         self.num_keypoints = num_keypoints
         self.num_dims_per_keypoint = num_dims_per_keypoint
-        self.poseFinal = nn.Linear(latent_dim, num_keypoints * num_dims_per_keypoint)
+        self.poseFinal = nn.Linear(num_latent_dims, num_keypoints * num_dims_per_keypoint)
 
     def forward(self, output):
         """
+        Decodes a sequence of latent vectors into keypoint motion data using a linear layer.
+
         Args:
-            output: [num_frames, batch_size, num_latent_dims]
+            output (Tensor):
+                Input latent tensor.
+                Shape: [num_frames, batch_size, num_latent_dims].
+
         Returns:
-            output: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+            Tensor:
+                Decoded keypoint motion.
+                Shape: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames].
         """
         num_frames, batch_size, num_latent_dims = output.shape
         output = self.poseFinal(output)
