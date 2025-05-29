@@ -79,7 +79,11 @@ class SignWritingToPoseDiffusion(nn.Module):
 
         self.pose_projection = OutputProcessMLP(num_latent_dims, num_keypoints, num_dims_per_keypoint)
 
-    def forward(self, x, timesteps, past_motion, signwriting_im_batch):
+    def forward(self,
+                x: torch.Tensor,
+                timesteps: torch.Tensor,
+                past_motion: torch.Tensor,
+                signwriting_im_batch: torch.Tensor):
         """
         Performs classifier-free guidance by running a forward pass of the diffusion model in either
         conditional or unconditional mode.
@@ -124,7 +128,10 @@ class SignWritingToPoseDiffusion(nn.Module):
         output = self.pose_projection(output)
         return output
 
-    def interface(self, x, timesteps, y=None):
+    def interface(self,
+                  x: torch.Tensor,
+                  timesteps: torch.Tensor,
+                  y: dict = None):
         """
         Performs classifier-free guidance by running a forward pass of the diffusion model
         in either conditional or unconditional mode. Extracts conditioning inputs from `y` and
@@ -207,7 +214,7 @@ class OutputProcessMLP(nn.Module):
 
 
 class EmbedSignWriting(nn.Module):
-    def __init__(self, num_latent_dims: int, embedding_arch='openai/clip-vit-base-patch32'):
+    def __init__(self, num_latent_dims: int, embedding_arch: str = 'openai/clip-vit-base-patch32'):
         super().__init__()
         self.model = CLIPModel.from_pretrained(embedding_arch)
         self.proj = None
