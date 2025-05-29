@@ -109,7 +109,7 @@ class OutputProcessMLP(nn.Module):
                  num_latent_dims: int,
                  num_keypoints: int,
                  num_dims_per_keypoint: int,
-                 hidden_dim=512):
+                 hidden_dim: int = 512):
         super().__init__()
         self.num_keypoints = num_keypoints
         self.num_dims_per_keypoint = num_dims_per_keypoint
@@ -123,9 +123,34 @@ class OutputProcessMLP(nn.Module):
             nn.Linear(hidden_dim // 2, num_keypoints * num_dims_per_keypoint)
         )
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (input) [num_frames, batch_size, num_keypoints*num_dims_per_keypoint]
+            x: (output) [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+        """
+        num_frames, batch_size, d = x.shape
+        x = self.mlp(x)  # use MLP instead of single linear layer
+        x = x.reshape(num_frames, batch_size, self.num_keypoints, self.num_dims_per_keypoint)
+        x = x.permute(1, 2, 3, 0)
+        return x
+
+
+class OutputProcess(nn.Module):
+    def __init__(self, input_feats, latent_dim, num_keypoints, num_dims_per_keypoint):
+        super().__init__()
+        self.num_keypoints = num_keypoints
+        self.num_dims_per_keypoint = num_dims_per_keypoint
+        self.poseFinal = nn.Linear(latent_dim, input_feats)
+
     def forward(self, output):
+        """
+        Args:
+            output: (input) [num_frames, batch_size, latent_dim]
+            output: (output) [batch_size, num_keypoints, num_dims_per_keypoint, num_frames]
+        """
         num_frames, batch_size, d = output.shape
-        output = self.mlp(output)  # use MLP instead of single linear layer
+        output = self.poseFinal(output)
         output = output.reshape(num_frames, batch_size, self.num_keypoints, self.num_dims_per_keypoint)
         output = output.permute(1, 2, 3, 0)
         return output
