@@ -131,7 +131,7 @@ class SignWritingToPoseDiffusion(nn.Module):
     def interface(self,
                   x: torch.Tensor,
                   timesteps: torch.Tensor,
-                  y: dict = None):
+                  y: dict):
         """
         Performs classifier-free guidance by running a forward pass of the diffusion model
         in either conditional or unconditional mode. Extracts conditioning inputs from `y` and
@@ -146,7 +146,7 @@ class SignWritingToPoseDiffusion(nn.Module):
                 Diffusion timesteps for each sample in the batch.
                 Shape: [batch_size], dtype: int.
 
-            y (dict, optional):
+            y (dict):
                 Dictionary of conditioning inputs. Must contain:
                     - 'sign_image': Tensor of shape [batch_size, 3, 224, 224]
                     - 'input_pose': Tensor of shape [batch_size, num_keypoints, num_dims_per_keypoint, num_past_frames]
