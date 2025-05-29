@@ -206,34 +206,6 @@ class OutputProcessMLP(nn.Module):
         return x
 
 
-class OutputProcess(nn.Module):
-    def __init__(self, num_latent_dims, num_keypoints, num_dims_per_keypoint):
-        super().__init__()
-        self.num_keypoints = num_keypoints
-        self.num_dims_per_keypoint = num_dims_per_keypoint
-        self.poseFinal = nn.Linear(num_latent_dims, num_keypoints * num_dims_per_keypoint)
-
-    def forward(self, output):
-        """
-        Decodes a sequence of latent vectors into keypoint motion data using a linear layer.
-
-        Args:
-            output (Tensor):
-                Input latent tensor.
-                Shape: [num_frames, batch_size, num_latent_dims].
-
-        Returns:
-            Tensor:
-                Decoded keypoint motion.
-                Shape: [batch_size, num_keypoints, num_dims_per_keypoint, num_frames].
-        """
-        num_frames, batch_size, num_latent_dims = output.shape
-        output = self.poseFinal(output)
-        output = output.reshape(num_frames, batch_size, self.num_keypoints, self.num_dims_per_keypoint)
-        output = output.permute(1, 2, 3, 0)
-        return output
-
-
 class EmbedSignWriting(nn.Module):
     def __init__(self, num_latent_dims: int, embedding_arch='openai/clip-vit-base-patch32'):
         super().__init__()
