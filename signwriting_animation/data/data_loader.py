@@ -1,5 +1,6 @@
 import os
 import random
+from typing import Literal
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from pose_format.torch.masked.collator import zero_pad_collator
@@ -24,13 +25,19 @@ class DynamicPosePredictionDataset(Dataset):
         num_future_frames: int = 20,
         with_metadata: bool = True,
         clip_model_name: str = "openai/clip-vit-base-patch32",
+        split: str = Literal['train', 'test', 'dev']
     ):
         super().__init__()
+
+        assert split in ['train', 'test', 'dev']
+
         self.data_dir = data_dir
         self.num_past_frames = num_past_frames
         self.num_future_frames = num_future_frames
         self.with_metadata = with_metadata
-        self.records = pd.read_csv(csv_path).to_dict(orient="records")
+        df_records = pd.read_csv(csv_path)
+        df_records = df_records[df_records['split'] == 'train']
+        self.records = df_records.to_dict(orient="records")
         self.clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
 
     def __len__(self):
