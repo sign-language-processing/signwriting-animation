@@ -10,6 +10,7 @@ dependencies = [
     "pandas",
     "torch>=1.11",
     "pose-format",
+    "lightning>=2.2",
     "signwriting @ git+https://github.com/sign-language-processing/signwriting",
     "pose-anonymization @ git+https://github.com/sign-language-processing/pose-anonymization",
     "signwriting-evaluation @ git+https://github.com/sign-language-processing/signwriting-evaluation",
