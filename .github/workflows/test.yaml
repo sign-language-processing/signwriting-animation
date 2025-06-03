@@ -12,6 +12,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
 
     steps:
       - uses: actions/checkout@v3
