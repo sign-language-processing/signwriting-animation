@@ -15,7 +15,7 @@ def pose_dataset():
         csv_path='signwriting_animation/data/test_data/transcription_samples/data_subset.csv',
         num_past_frames=num_past_frames_max,
         num_future_frames=num_future_frames_max,
-        with_metadata=True,
+        with_metadata=False,
         split='train'
     )
     return dataset, num_past_frames_max, num_future_frames_max, num_keypoints, num_dims_per_keypoint

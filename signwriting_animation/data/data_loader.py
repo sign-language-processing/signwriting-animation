@@ -1,5 +1,6 @@
 import os
 import random
+import torch
 from typing import Literal
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
@@ -97,11 +98,11 @@ class DynamicPosePredictionDataset(Dataset):
 
         if self.with_metadata:
             meta = {
-                "total_frames": total,
-                "sample_start": start,
-                "sample_end": end,
+                "total_frames": total_frames,
+                "sample_start": pivot_frame,
+                "sample_end": target_end,
                 "orig_start": rec.get("start", 0),
-                "orig_end": rec.get("end", total),
+                "orig_end": rec.get("end", total_frames),
             }
             sample["metadata"] = {
                 k: torch.tensor([v], dtype=torch.long) for k, v in meta.items()
