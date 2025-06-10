@@ -129,6 +129,7 @@ def main():
         num_past_frames=40,
         num_future_frames=20,
         with_metadata=True,
+        split='train'
     )
     loader = DataLoader(
         dataset,
