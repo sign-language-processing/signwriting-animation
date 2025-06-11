@@ -21,21 +21,23 @@ def pose_dataset():
     return dataset, num_past_frames_max, num_future_frames_max, num_keypoints, num_dims_per_keypoint
 
 
-def test_get_batch_from_dataset(pose_dataset):
+def test_get_sample_from_dataset(pose_dataset):
     dataset, num_past_frames_max, num_future_frames_max, num_keypoints, num_dims_per_keypoint = pose_dataset
 
-    batch = dataset[0]
+    sample = dataset[0]
 
-    num_future_frames_sel = batch['data'].shape[0]
-    num_past_frames_sel = batch['conditions']['input_pose'].shape[0]
+    num_future_frames_sel = len(sample['data'])
+    num_past_frames_sel = len(sample['conditions']['input_pose'])
+
+    pose_frame_shape = (1, num_keypoints, num_dims_per_keypoint)
 
     assert 0 <= num_future_frames_sel <= num_future_frames_max
     assert 0 <= num_past_frames_sel <= num_past_frames_max
 
-    assert batch['data'].shape == (num_future_frames_sel, 1, num_keypoints, num_dims_per_keypoint)
-    assert batch['conditions']['input_pose'].shape == (num_past_frames_sel, 1, num_keypoints, num_dims_per_keypoint)
-    assert batch['conditions']['input_mask'].shape == (num_past_frames_sel, 1, num_keypoints, num_dims_per_keypoint)
-    assert batch['conditions']['target_mask'].shape == (num_future_frames_sel, 1, num_keypoints, num_dims_per_keypoint)
-    assert batch['conditions']['sign_image'].shape == (3, 224, 224)
+    assert sample['data'].shape == (num_future_frames_sel, *pose_frame_shape)
+    assert sample['conditions']['input_pose'].shape == (num_past_frames_sel, *pose_frame_shape)
+    assert sample['conditions']['input_mask'].shape == (num_past_frames_sel, *pose_frame_shape)
+    assert sample['conditions']['target_mask'].shape == (num_future_frames_sel, *pose_frame_shape)
+    assert sample['conditions']['sign_image'].shape == (3, 224, 224)
 
-    assert batch['id'] == 'whatsthatsign-524.pose'
+    assert sample['id'] == 'whatsthatsign-524.pose'
