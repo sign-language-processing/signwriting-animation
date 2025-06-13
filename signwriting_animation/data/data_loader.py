@@ -1,7 +1,9 @@
 import os
 import random
 from typing import Literal
+
 import pandas as pd
+import torch
 from torch.utils.data import Dataset, DataLoader
 from pose_format.torch.masked.collator import zero_pad_collator
 from pose_format.pose import Pose
@@ -59,27 +61,28 @@ class DynamicPosePredictionDataset(Dataset):
             # Read only the relevant frames from the pose file (based on time, in milliseconds)
             raw = Pose.read(f, start_time=rec["start"] or None, end_time=rec["end"] or None)
         pose = normalize_mean_std(raw)
-        
+
         # The model expects constant size "input" and "target" windows
         total_frames = len(pose.body.data)
         pivot_frame = random.randint(0, total_frames - 1) # Choose a frame to separate the windows
 
         # Crop pose around the pivot. Window might not be of "constant" size, but it will be padded.
         input_start = max(0, pivot_frame - self.num_past_frames)
-        input_pose = pose.body[input_start:pivot_frame].torch() # TODO: consider reversing input_pose, since it will be right-padded
+        # TODO: consider reversing input_pose, since it will be right-padded
+        input_pose = pose.body[input_start:pivot_frame].torch()
         target_end = min(total_frames, pivot_frame + self.num_future_frames)
         target_pose = pose.body[pivot_frame:target_end].torch()
 
         input_data = input_pose.data.zero_filled()
         target_data = target_pose.data.zero_filled()
-        
+
         input_mask = input_pose.data.mask
         if input_mask.sum() == 0:
             print("Input contains no valid frames.")
 
         target_mask = target_pose.data.mask
         if target_mask.sum() == 0:
-            print("Target contains no valid frames.") 
+            print("Target contains no valid frames.")
 
         pil_img = signwriting_to_clip_image(rec.get("text", ""))
         sign_img = self.clip_processor(images=pil_img, return_tensors="pt").pixel_values.squeeze(0)
@@ -97,11 +100,11 @@ class DynamicPosePredictionDataset(Dataset):
 
         if self.with_metadata:
             meta = {
-                "total_frames": total,
-                "sample_start": start,
-                "sample_end": end,
+                "total_frames": total_frames,
+                "sample_start": pivot_frame,
+                "sample_end": target_end,
                 "orig_start": rec.get("start", 0),
-                "orig_end": rec.get("end", total),
+                "orig_end": rec.get("end", total_frames),
             }
             sample["metadata"] = {
                 k: torch.tensor([v], dtype=torch.long) for k, v in meta.items()
@@ -115,7 +118,7 @@ def get_num_workers():
     """
     cpu_count = os.cpu_count()
     return 0 if cpu_count is None or cpu_count <= 1 else cpu_count
-    
+
 def main():
     """
     Run a test batch through the dataset and dataloader.
@@ -129,6 +132,7 @@ def main():
         num_past_frames=40,
         num_future_frames=20,
         with_metadata=True,
+        split='train'
     )
     loader = DataLoader(
         dataset,
@@ -152,4 +156,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

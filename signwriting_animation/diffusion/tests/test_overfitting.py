@@ -100,8 +100,6 @@ class TestOverfitSanity(unittest.TestCase):
                 print("Target:\n", target.cpu().numpy())
                 assert torch.allclose(rounded, target, atol=1e-1), f"Sample {idx+1} did not overfit!"
         print("All overfit sanity checks passed!")
-    def test_dummy(self):
-        self.assertEqual(1, 1)
 
 if __name__ == "__main__":
     unittest.main()
