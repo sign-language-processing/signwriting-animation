@@ -58,7 +58,7 @@ class DynamicPosePredictionDataset(Dataset):
 
         pose_path = os.path.join(self.data_dir, rec["pose"])
         if not os.path.isfile(pose_path):
-            return self.__getitem__(random.randint(0, len(self.records) - 1))
+            return self[random.randint(0, len(self.records) - 1)]
 
         with open(pose_path, "rb") as f:
             # Read only the relevant frames from the pose file (based on time, in milliseconds)
@@ -74,12 +74,12 @@ class DynamicPosePredictionDataset(Dataset):
         # TODO: consider reversing input_pose, since it will be right-padded
         input_pose = pose.body[input_start:pivot_frame].torch()
         target_end = min(total_frames, pivot_frame + self.num_future_frames)
-        target_pose = pose.body[pivot_frame:].torch()
+        target_pose = pose.body[pivot_frame:target_end].torch()
 
         input_data = input_pose.data.zero_filled()
         target_data = target_pose.data.zero_filled()
         print("target_data shape:", target_data.shape)
-        target_length = torch.tensor([target_data.shape[0]], dtype=torch.float32) 
+        target_length = torch.tensor([len(target_data)], dtype=torch.float32) 
 
         input_mask = input_pose.data.mask
         if input_mask.sum() == 0:
@@ -107,7 +107,7 @@ class DynamicPosePredictionDataset(Dataset):
             meta = {
                 "total_frames": total_frames,
                 "sample_start": pivot_frame,
-                "sample_end": total_frames,
+                "sample_end": target_end,
                 "orig_start": rec.get("start", 0),
                 "orig_end": rec.get("end", total_frames),
             }

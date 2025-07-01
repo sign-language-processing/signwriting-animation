@@ -111,6 +111,8 @@ class SignWritingToPoseDiffusion(nn.Module):
             Tensor:
                 The predicted denoised motion at the current timestep.
                 Shape: [batch_size, num_past_frames, num_keypoints, num_dims_per_keypoint].
+            Distribution:
+                The predicted distribution over the future sequence length.    
         """
 
         batch_size, num_keypoints, num_dims_per_keypoint, num_frames = x.shape
@@ -129,7 +131,6 @@ class SignWritingToPoseDiffusion(nn.Module):
         output = self.seqEncoder(xseq)[-num_frames:]
         output = self.pose_projection(output)
         global_latent = self.global_norm(xseq.mean(0))
-        print("Global latent stats: min", global_latent.min().item(), "max", global_latent.max().item()) 
 
         length_dist = self.length_predictor(global_latent)
         return output, length_dist
