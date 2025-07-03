@@ -1,7 +1,6 @@
 import os
 import random
 from typing import Literal
-
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -29,6 +28,18 @@ class DynamicPosePredictionDataset(Dataset):
         clip_model_name: str = "openai/clip-vit-base-patch32",
         split: str = Literal['train', 'test', 'dev']
     ):
+        """
+        Initialize the DynamicPosePredictionDataset.
+
+        Args:
+            data_dir (str): Path to the directory containing pose data files.
+            csv_path (str): Path to the CSV file with dataset records.
+            num_past_frames (int): Number of past frames to include in the input sequence.
+            num_future_frames (int): Number of future frames to predict.
+            with_metadata (bool): Whether to include metadata in each sample.
+            clip_model_name (str): Name of the pretrained CLIP model to use.
+            split (str): Dataset split to use ('train', 'test', or 'dev').
+        """
         super().__init__()
 
         assert split in ['train', 'test', 'dev']
@@ -71,23 +82,17 @@ class DynamicPosePredictionDataset(Dataset):
 
         # Crop pose around the pivot. Window might not be of "constant" size, but it will be padded.
         input_start = max(0, pivot_frame - self.num_past_frames)
-        # TODO: consider reversing input_pose, since it will be right-padded
+        # Note: consider reversing input_pose, since it will be right-padded
         input_pose = pose.body[input_start:pivot_frame].torch()
         target_end = min(total_frames, pivot_frame + self.num_future_frames)
         target_pose = pose.body[pivot_frame:target_end].torch()
 
         input_data = input_pose.data.zero_filled()
         target_data = target_pose.data.zero_filled()
-        print("target_data shape:", target_data.shape)
-        target_length = torch.tensor([len(target_data)], dtype=torch.float32) 
+        target_length = torch.tensor([len(target_data)], dtype=torch.float32)
 
         input_mask = input_pose.data.mask
-        if input_mask.sum() == 0:
-            print("Input contains no valid frames.")
-
         target_mask = target_pose.data.mask
-        if target_mask.sum() == 0:
-            print("Target contains no valid frames.")
 
         pil_img = signwriting_to_clip_image(rec.get("text", ""))
         sign_img = self.clip_processor(images=pil_img, return_tensors="pt").pixel_values.squeeze(0)
@@ -159,5 +164,5 @@ def main():
             print(f"Metadata {k}:", v.shape)
 
 
-if __name__ == "__main__":
-    main()
+#if __name__ == "__main__":
+#    main()

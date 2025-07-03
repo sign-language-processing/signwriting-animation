@@ -15,3 +15,4 @@ class DistributionPredictionModel(nn.Module):
         std = torch.exp(0.5 * log_var)
         q = torch.distributions.Normal(mu, std)
         return q
+    

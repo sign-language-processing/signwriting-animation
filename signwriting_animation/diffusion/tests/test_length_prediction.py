@@ -1,12 +1,12 @@
+import os
 import pytest
 import torch
 from torch.utils.data import DataLoader
-from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
 from pose_format.torch.masked.collator import zero_pad_collator
-import lightning as pl
 from lightning.pytorch import Callback
+import lightning as pl
 import matplotlib.pyplot as plt
-import os
+from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
 
 class LengthPredictionModule(pl.LightningModule):
     """
@@ -39,7 +39,7 @@ class LengthPredictionModule(pl.LightningModule):
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=target_lengths.shape[0])
 
         return pred_mean, pred_std, target_lengths
-    
+
 class LengthPredictionPlotCallback(Callback):
     """
     Callback to collect predictions and generate a plot of predicted means with standard deviation error bars.
@@ -97,7 +97,7 @@ def test_length_prediction(pose_dataset, batch_size):
     plot_callback = LengthPredictionPlotCallback()
 
     trainer = pl.Trainer(
-        max_epochs=1,  
+        max_epochs=1,
         log_every_n_steps=1,
         accelerator="cpu",
         callbacks=[plot_callback]
