@@ -1,10 +1,10 @@
+import unittest
 import torch
 import lightning as pl
-import unittest
 from torch.utils.data import DataLoader
 from transformers import CLIPProcessor
-from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
 from signwriting_evaluation.metrics.clip import signwriting_to_clip_image
+from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 

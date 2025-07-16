@@ -1,5 +1,6 @@
 import os
 import random
+from dataclasses import dataclass
 from typing import Literal
 import pandas as pd
 import torch
@@ -10,6 +11,16 @@ from pose_anonymization.data.normalization import normalize_mean_std
 from signwriting_evaluation.metrics.clip import signwriting_to_clip_image
 from transformers import CLIPProcessor
 
+@dataclass
+class DatasetConfig:
+    """
+    Configuration for dataset paths and frame sampling.
+    """
+    data_dir: str
+    csv_path: str
+    num_past_frames: int = 40
+    num_future_frames: int = 20
+    split: Literal['train', 'test', 'dev'] = 'train'
 
 class DynamicPosePredictionDataset(Dataset):
     """
@@ -20,36 +31,28 @@ class DynamicPosePredictionDataset(Dataset):
     """
     def __init__(
         self,
-        data_dir: str,
-        csv_path: str,
-        num_past_frames: int = 40,
-        num_future_frames: int = 20,
+        config: DatasetConfig,
         with_metadata: bool = True,
         clip_model_name: str = "openai/clip-vit-base-patch32",
-        split: str = Literal['train', 'test', 'dev']
     ):
         """
         Initialize the DynamicPosePredictionDataset.
 
         Args:
-            data_dir (str): Path to the directory containing pose data files.
-            csv_path (str): Path to the CSV file with dataset records.
-            num_past_frames (int): Number of past frames to include in the input sequence.
-            num_future_frames (int): Number of future frames to predict.
+            config (DatasetConfig): Configuration object containing dataset paths, frame counts, and split.
             with_metadata (bool): Whether to include metadata in each sample.
             clip_model_name (str): Name of the pretrained CLIP model to use.
-            split (str): Dataset split to use ('train', 'test', or 'dev').
         """
         super().__init__()
 
-        assert split in ['train', 'test', 'dev']
+        assert config.split in ['train', 'test', 'dev']
 
-        self.data_dir = data_dir
-        self.num_past_frames = num_past_frames
-        self.num_future_frames = num_future_frames
+        self.data_dir = config.data_dir
+        self.num_past_frames = config.num_past_frames
+        self.num_future_frames = config.num_future_frames
         self.with_metadata = with_metadata
-        df_records = pd.read_csv(csv_path)
-        df_records = df_records[df_records['split'] == 'train']
+        df_records = pd.read_csv(config.csv_path)
+        df_records = df_records[df_records['split'] == config.split]
         self.records = df_records.to_dict(orient="records")
         self.clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
 
@@ -133,16 +136,17 @@ def main():
     """
     Run a test batch through the dataset and dataloader.
     """
-    data_dir = "/scratch/yayun/pose_data/raw_poses"
-    csv_path = os.path.join(os.path.dirname(data_dir), "data.csv")
-
-    dataset = DynamicPosePredictionDataset(
-        data_dir=data_dir,
-        csv_path=csv_path,
+    config = DatasetConfig(
+        data_dir="/scratch/yayun/pose_data/raw_poses",
+        csv_path="/scratch/yayun/pose_data/data.csv",
         num_past_frames=40,
         num_future_frames=20,
-        with_metadata=True,
         split='train'
+    )
+
+    dataset = DynamicPosePredictionDataset(
+        config=config,
+        with_metadata=True,
     )
     loader = DataLoader(
         dataset,
