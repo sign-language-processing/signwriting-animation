@@ -37,7 +37,7 @@ class LightningOverfitModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, timesteps, past_motion, sw_img, val = batch
-        output = self(x, timesteps, past_motion, sw_img)
+        output, _ = self(x, timesteps, past_motion, sw_img)
         target = val.view(-1, 1, 1, 1).expand_as(output)
         loss = self.loss_fn(output, target)
         if batch_idx == 0 and self.current_epoch % 10 == 0:
@@ -89,8 +89,9 @@ class TestOverfitSanity(unittest.TestCase):
         lightning_model.eval()
         test_dataloader = DataLoader(self.samples, batch_size=1, shuffle=False)
         with torch.no_grad():
-            for idx, (x, timesteps, past_motion, sw_img, val) in enumerate(test_dataloader):
-                output = lightning_model(x, timesteps, past_motion, sw_img)
+            for idx, batch in enumerate(test_dataloader):
+                x, timesteps, past_motion, sw_img, val = batch
+                output, _ = lightning_model(x, timesteps, past_motion, sw_img)
                 rounded = torch.round(output)
                 target = val.view(-1, 1, 1, 1).expand_as(output)
                 print(f"[EVAL] Sample {idx+1} (target={val.item()})")

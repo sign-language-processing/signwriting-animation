@@ -80,8 +80,9 @@ def test_length_prediction(pose_dataset, batch_size):
     """
     Test the length predictor on a batch of data and log the loss + plot predictions.
     """
+    dataset, *_ = pose_dataset
     dataloader = DataLoader(
-        pose_dataset,
+        dataset,
         batch_size=batch_size,
         shuffle=False,
         collate_fn=zero_pad_collator,
