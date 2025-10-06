@@ -27,7 +27,7 @@ class DynamicPosePredictionDataset(Dataset):
         num_future_frames: int = 20,
         with_metadata: bool = True,
         clip_model_name: str = "openai/clip-vit-base-patch32",
-        split: str = Literal['train', 'test', 'dev']
+        split: Literal['train', 'dev', 'test'] = 'train'
     ):
         super().__init__()
 
@@ -38,7 +38,7 @@ class DynamicPosePredictionDataset(Dataset):
         self.num_future_frames = num_future_frames
         self.with_metadata = with_metadata
         df_records = pd.read_csv(csv_path)
-        df_records = df_records[df_records['split'] == 'train']
+        df_records = df_records[df_records['split'] == split]
         self.records = df_records.to_dict(orient="records")
         self.clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
 
@@ -64,7 +64,9 @@ class DynamicPosePredictionDataset(Dataset):
 
         # The model expects constant size "input" and "target" windows
         total_frames = len(pose.body.data)
-        pivot_frame = random.randint(0, total_frames - 1) # Choose a frame to separate the windows
+        min_pivot = 1
+        max_pivot = max(1, total_frames - 1)
+        pivot_frame = random.randint(min_pivot, max_pivot) # Choose a frame to separate the windows
 
         # Crop pose around the pivot. Window might not be of "constant" size, but it will be padded.
         input_start = max(0, pivot_frame - self.num_past_frames)
@@ -73,16 +75,11 @@ class DynamicPosePredictionDataset(Dataset):
         target_end = min(total_frames, pivot_frame + self.num_future_frames)
         target_pose = pose.body[pivot_frame:target_end].torch()
 
-        input_data = input_pose.data.zero_filled()
-        target_data = target_pose.data.zero_filled()
+        input_data = input_pose.data
+        target_data = target_pose.data
 
         input_mask = input_pose.data.mask
-        if input_mask.sum() == 0:
-            print("Input contains no valid frames.")
-
         target_mask = target_pose.data.mask
-        if target_mask.sum() == 0:
-            print("Target contains no valid frames.")
 
         pil_img = signwriting_to_clip_image(rec.get("text", ""))
         sign_img = self.clip_processor(images=pil_img, return_tensors="pt").pixel_values.squeeze(0)
