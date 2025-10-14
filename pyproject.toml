@@ -14,6 +14,7 @@ dependencies = [
     "signwriting @ git+https://github.com/sign-language-processing/signwriting",
     "pose-anonymization @ git+https://github.com/sign-language-processing/pose-anonymization",
     "signwriting-evaluation @ git+https://github.com/sign-language-processing/signwriting-evaluation",
+    "pose-evaluation @ git+https://github.com/sign-language-processing/pose-evaluation",
     "transformers>=4.25",
     "CAMDM @ git+https://github.com/AmitMY/CAMDM",
 ]
