@@ -1,199 +1,199 @@
 import os
-import csv
 import torch
 import numpy as np
 import lightning as pl
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib import animation
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
+
+from pose_format import Pose
+from pose_format.numpy.pose_body import NumPyPoseBody
+from pose_format.pose_visualizer import PoseVisualizer
+from pose_format.utils.generic import reduce_holistic
 from pose_format.torch.masked.collator import zero_pad_collator
+
 from signwriting_animation.data.data_loader import DynamicPosePredictionDataset
-from signwriting_animation.diffusion.lightning_module import LitMinimal, masked_dtw
+from signwriting_animation.diffusion.lightning_module import LitMinimal, sanitize_btjc, masked_dtw
 
 
-def _to_plain_tensor(x):
-    """Convert MaskedTensor or custom tensor to plain CPU tensor."""
+
+def _to_plain(x):
+    """Convert pose-format tensors to contiguous float32 CPU tensor."""
     if hasattr(x, "tensor"):
         x = x.tensor
     if hasattr(x, "zero_filled"):
         x = x.zero_filled()
-    return x.detach().cpu()
+    return x.detach().cpu().contiguous().float()
 
 
-def visualize_pose_sequence(seq_btjc, save_path="logs/free_run_vis.png", step=5):
-    """
-    Visualize a pose sequence (e.g., model prediction).
-    seq_btjc: [1,T,J,C]
-    """
-    seq = _to_plain_tensor(seq_btjc)[0]  # [T,J,C]
-    T, J, C = seq.shape
-    plt.figure(figsize=(5, 5))
-    for t in range(0, T, step):
-        pose = seq[t]
-        plt.scatter(pose[:, 0], -pose[:, 1], s=8)
-    plt.title("Predicted Pose Trajectory (sampled frames)")
-    plt.axis("equal")
-    plt.tight_layout()
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path)
-    plt.close()
+def temporal_smooth(x, k=5):
+    """Simple temporal smoothing for visualization."""
+    import torch.nn.functional as F
+    if x.dim() == 4:
+        x = x[0]
+
+    T, J, C = x.shape
+    x = x.permute(2,1,0).reshape(1, C*J, T)
+    x = F.avg_pool1d(x, kernel_size=k, stride=1, padding=k//2)
+    x = x.reshape(C, J, T).permute(2,1,0)
+    return x.contiguous()
 
 
-class FilteredDataset(Dataset):
-    """Subset of valid samples for minimal overfit test."""
-    def __init__(self, base: Dataset, target_count=4, max_scan=500):
-        self.base = base
-        self.idx = []
-        N = len(base)
-        for i in range(min(N, max_scan)):
-            try:
-                it = base[i]
-                if isinstance(it, dict) and "data" in it and "conditions" in it:
-                    self.idx.append(i)
-                if len(self.idx) >= target_count:
-                    break
-            except Exception:
-                continue
-        if not self.idx:
-            self.idx = [0]
+def visualize_pose(tensor, scale=250.0, offset=(512, 384)):
+    """Convert 3D pose → 2D viewer coordinates."""
+    if tensor.dim() == 4:
+        tensor = tensor[0]
 
-    def __len__(self):
-        return len(self.idx)
+    x = tensor.clone().float()
+    center = x.mean(dim=1, keepdim=True)
+    x = x - center
 
-    def __getitem__(self, i):
-        return self.base[self.idx[i]]
-
-def _as_dense_cpu_btjc(x):
-    if hasattr(x, "zero_filled"):
-        x = x.zero_filled()
-    if getattr(x, "is_sparse", False):
-        x = x.to_dense()
-    x = x.detach().float().cpu().contiguous()
-    if x.dim() == 5:
-        x = x[:, :, 0, ...]
-    return x
-
-def make_loader(data_dir, csv_path, split, bs, num_workers):
-    base = DynamicPosePredictionDataset(
-        data_dir=data_dir, csv_path=csv_path, with_metadata=True, split=split
-    )
-    ds = FilteredDataset(base, target_count=4, max_scan=1000)
-    print(f"[DEBUG] split={split} | batch_size={bs} | len(ds)={len(ds)}")
-    return DataLoader(
-        ds, batch_size=bs, shuffle=True, num_workers=num_workers, collate_fn=zero_pad_collator
-    )
+    x[..., 1] = -x[..., 1]  # flip Y
+    x[..., :2] *= scale
+    x[..., 0] += offset[0]
+    x[..., 1] += offset[1]
+    return x.contiguous()
 
 
+def tensor_to_pose(t_btjc, header):
+    """Convert tensor → Pose-format object."""
+    if t_btjc.dim() == 4:
+        t = t_btjc[0]
+    elif t_btjc.dim() == 3:
+        t = t_btjc
+    else:
+        raise ValueError
+
+    print("[tensor_to_pose] final shape:", t.shape)
+
+    arr = t[:, None, :, :].cpu().numpy().astype(np.float32)
+    conf = np.ones((arr.shape[0], 1, arr.shape[2], 1), dtype=np.float32)
+
+    body = NumPyPoseBody(fps=25, data=arr, confidence=conf)
+    return Pose(header=header, body=body)
+
+
+# Main
 if __name__ == "__main__":
-    pl.seed_everything(42, workers=True)
-    torch.set_default_dtype(torch.float32)
+    pl.seed_everything(42)
 
     data_dir = "/data/yayun/pose_data"
-    csv_path = "/data/yayun/signwriting-animation/data.csv"
+    csv_path = "/data/yayun/signwriting-animation/data_fixed.csv"
+    out_dir = "logs/minimal_178"
+    os.makedirs(out_dir, exist_ok=True)
 
-    batch_size = 2
-    num_workers = 2
+    stats_path = f"{data_dir}/mean_std_178.pt"
 
-    train_loader = make_loader(data_dir, csv_path, "train", bs=batch_size, num_workers=num_workers)
-    val_loader = train_loader  # same small subset for validation
+    base_ds = DynamicPosePredictionDataset(
+        data_dir=data_dir,
+        csv_path=csv_path,
+        num_past_frames=40,
+        num_future_frames=20,
+        with_metadata=True,
+        split="train",
+        reduce_holistic=True,
+    )
+    base_ds.mean_std = torch.load(stats_path)
 
-    model = LitMinimal(log_dir="logs")
-
-    trainer = pl.Trainer(
-        max_steps=500,
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=1,
-        log_every_n_steps=5,
-        limit_train_batches=10,
-        limit_val_batches=5,
-        check_val_every_n_epoch=1,
-        deterministic=True,
-        num_sanity_val_steps=0,
-        enable_checkpointing=False,
+    small_ds = torch.utils.data.Subset(base_ds, [0, 1, 2, 3])
+    loader = DataLoader(
+        small_ds,
+        batch_size=4,
+        shuffle=True,
+        collate_fn=zero_pad_collator,
     )
 
-    trainer.fit(model, train_loader, val_loader)
+    batch0 = next(iter(loader))
+    num_joints = batch0["data"].shape[-2]
+    num_dims   = batch0["data"].shape[-1]
+    print(f"[INFO] joints={num_joints}, dims={num_dims}")
 
-    try:
-        model.on_fit_end()
-    except Exception as e:
-        print("[WARN] on_fit_end() failed:", e)
+    # Model
+    model = LitMinimal(
+        num_keypoints=num_joints,
+        num_dims=num_dims,
+        stats_path=stats_path,
+        lr=1e-4,
+    )
 
-    # Inference on 1 example for visual check
+    trainer = pl.Trainer(
+        max_epochs=200,
+        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        devices=1,
+        limit_train_batches=1,
+        limit_val_batches=1,
+        enable_checkpointing=False,
+        deterministic=True,
+    )
+
+    print("[TRAIN] Overfit 4 samples…")
+    trainer.fit(model, loader, loader)
+
+    ref_path = base_ds.records[0]["pose"]
+    ref_path = ref_path if os.path.isabs(ref_path) else os.path.join(data_dir, ref_path)
+    with open(ref_path, "rb") as f:
+        ref_pose = Pose.read(f)
+
+    header = reduce_holistic(ref_pose.remove_components(["POSE_WORLD_LANDMARKS"])).header
+
+    print("[HEADER] components:", [c.name for c in header.components])
+
+    # Inference
     model.eval()
+    device = trainer.strategy.root_device
+    model = model.to(device)
+    model.mean_pose = model.mean_pose.to(device)
+    model.std_pose  = model.std_pose.to(device)
+
     with torch.no_grad():
-        batch = next(iter(train_loader))
+        batch = next(iter(loader))
         cond  = batch["conditions"]
 
-        past_btjc = cond["input_pose"][:1].to(model.device)
-        sign_img  = cond["sign_image"][:1].to(model.device)
-        fut_gt    = batch["data"][:1].to(model.device)
-        mask_bt   = cond["target_mask"][:1].to(model.device) 
+        past = sanitize_btjc(cond["input_pose"][:1]).to(device)
+        sign = cond["sign_image"][:1].float().to(device)
+        gt   = sanitize_btjc(batch["data"][:1]).to(device)
 
-        print("[GEN] using generate_full_sequence", flush=True)
-        gen_btjc = model.generate_full_sequence(
-            past_btjc=past_btjc,
-            sign_img=sign_img,
-            target_mask=mask_bt,
+        future_len = gt.size(1)
+        print("[SAMPLE] future_len =", future_len)
+
+        # 1. Generate normalized prediction
+        pred_norm = model.sample_autoregressive_fast(
+            past_btjc=past,
+            sign_img=sign,
+            future_len=future_len,
+            chunk=1,
         )
 
-        gen_btjc_cpu = _as_dense_cpu_btjc(gen_btjc)[0]  # [T,J,C]
-        fut_gt_cpu   = _as_dense_cpu_btjc(fut_gt)[0]    # [T,J,C]
+        # 2. unnormalize to BTJC
+        pred = model.unnormalize(pred_norm)
 
-        def frame_disp_cpu(x):  # x: [T,J,C] dense
-            if x.size(0) < 2: return 0.0
-            dx = x[1:, :, :2] - x[:-1, :, :2]
-            return dx.abs().mean().item()
+        # 3. Smoothing (optional)
+        pred_s = temporal_smooth(pred)
+        gt_s   = temporal_smooth(gt)
 
-        Tf = gen_btjc_cpu.size(0)
-        mv_pred = frame_disp_cpu(gen_btjc_cpu)
-        mv_gt   = frame_disp_cpu(fut_gt_cpu)
-        print(f"[GEN] Tf={Tf}, mean|Δpred|={mv_pred:.4f}, mean|Δgt|={mv_gt:.4f}", flush=True)
-        if Tf < 2:
-            print("[WARN] predicted sequence length < 2; animation may look static.", flush=True)
+        # 4. Visualization transform
+        pred_f = visualize_pose(pred_s, scale=250, offset=(500, 500))
+        gt_f   = visualize_pose(gt_s,  scale=250, offset=(500, 500))
 
-        try:
-            dtw_free = masked_dtw(gen_btjc, fut_gt, mask_bt).item()
-            print(f"[Free-run] DTW: {dtw_free:.4f}", flush=True)
-        except Exception as e:
-            print("[Free-run] DTW eval skipped:", e)
+        print("gt_f shape:", gt_f.shape)
+        print("pred_f shape:", pred_f.shape)
 
-        os.makedirs("logs", exist_ok=True)
-        torch.save({"gen": gen_btjc_cpu, "gt": fut_gt_cpu}, "logs/free_run.pt")
-        print("Saved free-run sequences to logs/free_run.pt", flush=True)
+        # --- DTW evaluation ---
+        mask_bt = torch.ones(1, future_len, device=device)
+        dtw_val = masked_dtw(pred, gt, mask_bt)
+        print(f"[DTW] masked_dtw (unnormalized) = {dtw_val:.4f}")
 
-        fig, ax = plt.subplots(figsize=(5, 5))
-        sc_pred = ax.scatter([], [], s=15, c="red",  label="Predicted", animated=True)
-        sc_gt   = ax.scatter([], [], s=15, c="blue", label="GT",        alpha=0.35, animated=True)
-        ax.legend(loc="upper right", frameon=False)
-        ax.axis("equal")
+    pose_gt = tensor_to_pose(gt_f, header)
+    pose_pr = tensor_to_pose(pred_f, header)
 
-        xy = torch.cat([
-            gen_btjc_cpu[..., :2].reshape(-1, 2),
-            fut_gt_cpu[...,  :2].reshape(-1, 2)
-        ], dim=0).numpy()
-        x_min, y_min = xy.min(axis=0); x_max, y_max = xy.max(axis=0)
-        pad = 0.05 * max(x_max - x_min, y_max - y_min, 1e-6)
-        ax.set_xlim(x_min - pad, x_max + pad)
-        ax.set_ylim(y_min - pad, y_max + pad)
+    out_gt = os.path.join(out_dir, "gt_178.pose")
+    out_pr = os.path.join(out_dir, "pred_178.pose")
 
-        def _init():
-            sc_pred.set_offsets(np.empty((0, 2)))
-            sc_gt.set_offsets(np.empty((0, 2)))
-            return sc_pred, sc_gt
+    for p in [out_gt, out_pr]:
+        if os.path.exists(p):
+            os.remove(p)
 
-        def _update(f):
-            ax.set_title(f"Free-run prediction  |  frame {f+1}/{len(gen_btjc_cpu)}")
-            sc_pred.set_offsets(gen_btjc_cpu[f, :, :2].numpy())
-            sc_gt.set_offsets(  fut_gt_cpu[f,   :, :2].numpy())
-            return sc_pred, sc_gt
+    with open(out_gt, "wb") as f:
+        pose_gt.write(f)
+    with open(out_pr, "wb") as f:
+        pose_pr.write(f)
 
-        ani = animation.FuncAnimation(
-            fig, _update, frames= max(1, len(gen_btjc_cpu)),
-            init_func=_init, interval=100, blit=True
-        )
-        ani.save("logs/free_run_anim.gif", writer="pillow", fps=10)
-        plt.close(fig)
-        print("Saved free-run animation to logs/free_run_anim.gif", flush=True)
+    print("[SAVE] GT & Pred pose saved ✔")
