@@ -1,22 +1,14 @@
-import os
-import csv
 import torch
+import torch.nn as nn
+import numpy as np
 import lightning as pl
-from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
 from pose_evaluation.metrics.dtw_metric import DTWDTAIImplementationDistanceMeasure as PE_DTW
+from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusion
+from CAMDM.diffusion.gaussian_diffusion import GaussianDiffusion, ModelMeanType, ModelVarType, LossType
 
 
 def _to_dense(x):
-    """
-    Convert a potentially sparse or masked tensor to a dense, contiguous float32 tensor.
-        - pose-format MaskedTensor (via .zero_filled())
-        - sparse tensors (.to_dense())
-        - dtype casting to float32
-    Args:
-        x (torch.Tensor or MaskedTensor): Input tensor of arbitrary type.
-    Returns:
-        torch.Tensor: Dense float32 tensor with contiguous memory layout.
-    """
+    """Convert MaskedTensor / sparse tensor to dense contiguous float32."""
     if hasattr(x, "zero_filled"):
         x = x.zero_filled()
     if getattr(x, "is_sparse", False):
@@ -25,32 +17,23 @@ def _to_dense(x):
         x = x.float()
     return x.contiguous()
 
+
 def sanitize_btjc(x):
-    """Ensure tensor is [B,T,J,C]. Handle sparse or [B,T,P,J,C] inputs."""
+    """
+    Ensure tensor is [B,T,J,C]. Strip P dim if exists.
+    This is the most stable version you used in your previous working PR.
+    """
     x = _to_dense(x)
     if x.dim() == 5:  # [B,T,P,J,C]
-        x = x[:, :, 0, ...]
+        x = x[:, :, 0]
     if x.dim() != 4:
         raise ValueError(f"Expected [B,T,J,C], got {tuple(x.shape)}")
     return x
 
-def btjc_to_bjct(x):  # [B,T,J,C] -> [B,J,C,T]
-    """Permute tensor from [B, T, J, C] → [B, J, C, T]."""
-    return x.permute(0, 2, 3, 1).contiguous()
-
-def bjct_to_btjc(x):  # [B,J,C,T] -> [B,T,J,C]
-    """Permute tensor from [B, J, C, T] → [B, T, J, C]."""
-    return x.permute(0, 3, 1, 2).contiguous()
 
 def masked_mse(pred_btjc, tgt_btjc, mask_bt):
     """
-    Compute mean squared error over valid (masked) frames.
-    Args:
-        pred_btjc (torch.Tensor): Predicted poses [B, T, J, C].
-        tgt_btjc (torch.Tensor): Target poses [B, T, J, C].
-        mask_bt (torch.Tensor): Binary mask [B, T] where 1 indicates valid frames.
-    Returns:
-        torch.Tensor: Scalar loss value (float).
+    Stable masked MSE (trim to min length, avoid denominator errors).
     """
     pred = sanitize_btjc(pred_btjc)
     tgt  = sanitize_btjc(tgt_btjc)
@@ -58,35 +41,38 @@ def masked_mse(pred_btjc, tgt_btjc, mask_bt):
     Tm = min(pred.size(1), tgt.size(1), mask_bt.size(1))
     pred = pred[:, :Tm]
     tgt  = tgt[:,  :Tm]
-    m4 = mask_bt[:, :Tm].float()[:, :, None, None]   # [B,T,1,1]
 
-    diff2 = (pred - tgt) ** 2                        # [B,T,J,C]
+    m4 = mask_bt[:, :Tm].float()[:, :, None, None]   # [B,T,1,1]
+    diff2 = (pred - tgt) ** 2
+
     num = (diff2 * m4).sum()
     den = (m4.sum() * pred.size(2) * pred.size(3)).clamp_min(1.0)
     return num / den
 
+
 def _btjc_to_tjc_list(x_btjc, mask_bt):
     """
-    Convert batched [B,T,J,C] tensor into list of variable-length [T,J,C] sequences.
-    Uses mask to trim valid frames for each sample.
-    Args:
-        x_btjc (torch.Tensor): Pose tensor [B, T, J, C].
-        mask_bt (torch.Tensor): Frame validity mask [B, T].
-    Returns:
-        list[torch.Tensor]: List of [T, J, C] tensors (one per batch sample).
+    Convert batched sequence [B,T,J,C] into list of valid-length [T,J,C].
+    The most reliable version from your working PR.
     """
     x_btjc = sanitize_btjc(x_btjc)
     B, T, J, C = x_btjc.shape
-    seqs = []
     mask_bt = (mask_bt > 0.5).float()
+
+    seqs = []
     for b in range(B):
         t = int(mask_bt[b].sum().item())
         t = max(0, min(t, T))
         seqs.append(x_btjc[b, :t].contiguous())
     return seqs
 
+
 @torch.no_grad()
 def masked_dtw(pred_btjc, tgt_btjc, mask_bt):
+    """
+    Stable DTW using trimmed sequences.
+    This is the SAME version used in your successful PR.
+    """
     preds = _btjc_to_tjc_list(pred_btjc, mask_bt)
     tgts  = _btjc_to_tjc_list(tgt_btjc,  mask_bt)
     dtw_metric = PE_DTW()
@@ -95,194 +81,276 @@ def masked_dtw(pred_btjc, tgt_btjc, mask_bt):
     for p, g in zip(preds, tgts):
         if p.size(0) < 2 or g.size(0) < 2:
             continue
-        pv = p.detach().cpu().numpy().astype("float32")  # [T,J,C]
-        gv = g.detach().cpu().numpy().astype("float32")  # [T,J,C]
-        pv = pv[:, None, :, :]  # (T, 1, J, C)
-        gv = gv[:, None, :, :]  # (T, 1, J, C)
+
+        pv = p.detach().cpu().numpy().astype("float32")   # (T,J,C)
+        gv = g.detach().cpu().numpy().astype("float32")   # (T,J,C)
+
+        pv = pv[:, None, :, :]   # → (T,1,J,C)
+        gv = gv[:, None, :, :]
+
         vals.append(float(dtw_metric.get_distance(pv, gv)))
 
     if not vals:
         return torch.tensor(0.0, device=pred_btjc.device)
+
     return torch.tensor(vals, device=pred_btjc.device).mean()
 
 
+#  --------------------- LitMinimal Model ---------------------
+
 class LitMinimal(pl.LightningModule):
     """
-    Minimal PyTorch Lightning module for SignWriting-to-Pose training.
+    Final Unified Version of Your LightningModule
+    ---------------------------------------------
     Features:
-        - Dynamic-window training (no fixed segment length)
-        - Masked MSE and velocity-based auxiliary loss
-        - One-shot full-sequence prediction during inference
-        - On-fit metric logging to CSV
-    Args:
-        num_keypoints (int): Number of body keypoints in pose representation.
-        num_dims (int): Number of spatial dimensions per keypoint (e.g. 3 for x,y,z).
-        lr (float): Learning rate for AdamW optimizer.
-        log_dir (str): Directory to save training metrics.
+        ✓ Stable sanitize / masked_mse / masked_dtw (from your best PR)
+        ✓ CAMDM diffusion core (GaussianDiffusion)
+        ✓ Global mean/std normalization for 178 joints
+        ✓ Velocity + acceleration auxiliary loss
+        ✓ Autoregressive fast sampling (p_sample_loop)
+        ✓ Fully compatible with your minimal loop pipeline
+
+    This is the version recommended for your new PR.
     """
-    def __init__(self, num_keypoints=586, num_dims=3, lr=1e-3, log_dir="logs"):
+
+    def __init__(
+        self,
+        num_keypoints=178,
+        num_dims=3,
+        lr=1e-4,
+        stats_path="/data/yayun/pose_data/mean_std_178.pt",
+        diffusion_steps=200,
+        beta_start=1e-4,
+        beta_end=2e-2,
+        pred_target="x0",
+        guidance_scale=0.0,
+    ):
         super().__init__()
         self.save_hyperparameters()
+        self.verbose = False
 
+        # ---------------- Load global mean/std ----------------
+        stats = torch.load(stats_path, map_location="cpu")
+        mean = stats["mean"].float().view(1, 1, -1, 3)
+        std  = stats["std"].float().view(1, 1, -1, 3)
+        self.register_buffer("mean_pose", mean)
+        self.register_buffer("std_pose",  std)
+
+        # ---------------- Load SignWriting → Pose model ----------------
         self.model = SignWritingToPoseDiffusion(
-            num_keypoints=num_keypoints, num_dims_per_keypoint=num_dims
+            num_keypoints=num_keypoints,
+            num_dims_per_keypoint=num_dims,
         )
-        import signwriting_animation.diffusion.core.models as M
-        print("[WHERE MODELS.PY] ", M.__file__, flush=True)
-        print("[HAS time_proj?] ", hasattr(self.model, "future_time_proj"), flush=True)
-        print("[FUTURE_PROJ PARAMS] ",
-            [n for n, _ in self.model.named_parameters() if "future_time_proj" in n],
-            flush=True)
+        print("[LitMinimal] CAMDM model loaded ✔")
+
+        # ---------------- Diffusion setup ----------------
+        self.pred_target = pred_target.lower()
+        model_mean_type = ModelMeanType.EPSILON if self.pred_target == "eps" else ModelMeanType.START_X
+
+        betas = np.linspace(beta_start, beta_end, diffusion_steps, dtype=np.float64)
+        self.diffusion = GaussianDiffusion(
+            betas=betas,
+            model_mean_type=model_mean_type,
+            model_var_type=ModelVarType.FIXED_SMALL,
+            loss_type=LossType.MSE,
+            rescale_timesteps=False
+        )
 
         self.lr = lr
-        self.log_dir = log_dir
-        self.train_losses, self.val_losses, self.val_dtws = [], [], []
+        self.guidance_scale = float(guidance_scale)
+        print(f"[LitMinimal] diffusion ready (target={self.pred_target}, T={diffusion_steps})")
 
-        print("[LitMinimal] full-sequence training (zeros query) + velocity loss ✅")
+    #  Normalization
+    def normalize(self, x):
+        return (x - self.mean_pose) / (self.std_pose + 1e-6)
 
-    def forward(self, x_btjc, timesteps, past_btjc, sign_img):
-        """Forward pass through diffusion model (batch-first format)."""
-        x_bjct    = btjc_to_bjct(sanitize_btjc(x_btjc))
-        past_bjct = btjc_to_bjct(sanitize_btjc(past_btjc))
-        out_bjct  = self.model.forward(x_bjct, timesteps, past_bjct, sign_img)
-        pred_btjc = bjct_to_btjc(out_bjct)  # [B,T,J,C]
-        return pred_btjc
+    def unnormalize(self, x):
+        return x * self.std_pose + self.mean_pose
 
-    def _make_mask_bt(self, raw_mask):
-        mask = raw_mask.float()
-        if mask.dim() == 5:   # [B,T,P,J,C] -> [B,T]
-            mask = (mask.abs().sum(dim=(2, 3, 4)) > 0).float()
-        elif mask.dim() == 4: # [B,T,J,C] -> [B,T]
-            mask = (mask.abs().sum(dim=(2, 3)) > 0).float()
-        elif mask.dim() == 3: # [B,T,C]   -> [B,T]
-            mask = (mask.abs().sum(dim=2) > 0).float()
-        return mask
-    def _time_ramp(self, T, device):
-        return torch.linspace(0, 1, steps=T, device=device).view(1, T, 1, 1)
+    #  Format: [B,T,J,C] ↔ [B,J,C,T]
+    @staticmethod
+    def btjc_to_bjct(x):
+        return x.permute(0, 2, 3, 1).contiguous()
 
+    @staticmethod
+    def bjct_to_btjc(x):
+        return x.permute(0, 3, 1, 2).contiguous()
+
+    def _forward_bjct(self, x_bjct, t_long, past_btjc, sign_img):
+        past_bjct = self.btjc_to_bjct(past_btjc)
+        return self.model.forward(x_bjct, t_long, past_bjct, sign_img)
+
+    #  Diffusion training step
+    def _diffuse_once(self, x0_btjc, t_long, cond):
+        x0_bjct = self.btjc_to_bjct(x0_btjc)
+        noise   = torch.randn_like(x0_bjct)
+        x_t     = self.diffusion.q_sample(x0_bjct, t_long, noise=noise)
+
+        pred_bjct = self._forward_bjct(
+            x_bjct=x_t,
+            t_long=self.diffusion._scale_timesteps(t_long),
+            past_btjc=cond["input_pose"],
+            sign_img=cond["sign_image"]
+        )
+
+        target = noise if self.pred_target == "eps" else x0_bjct
+        return pred_bjct, target
+
+    #  Training Step
     def training_step(self, batch, _):
-        if self.global_step == 0:
-            import signwriting_animation.diffusion.lightning_module as lm
-            print(f"[USING FILE] {lm.__file__}")
+        cond_raw  = batch["conditions"]
+        gt_btjc   = sanitize_btjc(batch["data"])
+        past_btjc = sanitize_btjc(cond_raw["input_pose"])
+        sign_img  = cond_raw["sign_image"].float()
 
-        cond = batch["conditions"]
-        fut  = sanitize_btjc(batch["data"])              # [B,Tf,J,C] (Tf dynamic)
-        past = sanitize_btjc(cond["input_pose"])         # [B,Tp,J,C]
-        mask = self._make_mask_bt(cond["target_mask"])   # [B,Tf]
-        sign = cond["sign_image"].float()
-        ts   = torch.zeros(fut.size(0), dtype=torch.long, device=fut.device)
-        
-        T = fut.size(1)
-        in_seq = 0.20 * torch.randn_like(fut) + 0.20 * self._time_ramp(T, fut.device)
-        pred = self.forward(in_seq, ts, past, sign)      # [B,Tf,J,C]
+        # ---- one-time std calibration ----
+        if not hasattr(self, "_std_calibrated"):
+            raw = sanitize_btjc(batch["data"]).to(self.device)
+            cur = ((raw - self.mean_pose) / (self.std_pose + 1e-6)).float().std().item()
+            factor = max(cur, 1e-3)
+            self.std_pose[:] = self.std_pose * factor
+            print(f"[Calib] normalized std={cur:.3f} → scale={factor:.3f}")
+            self._std_calibrated = True
 
-        loss_pos = masked_mse(pred, fut, mask)
-        if fut.size(1) > 1:
-            vel_mask = mask[:, 1:]
-            loss_vel = masked_mse(pred[:,1:]-pred[:,:-1], fut[:,1:]-fut[:,:-1], vel_mask)
-            loss = loss_pos + 0.5 * loss_vel
-        else:
-            loss = loss_pos
+        gt   = self.normalize(gt_btjc)
+        past = self.normalize(past_btjc)[:, -gt.size(1):]
+        cond = {"input_pose": past, "sign_image": sign_img}
 
-        if self.global_step == 0:
-            with torch.no_grad():
-                mv = (pred[:,1:]-pred[:,:-1]).abs().mean().item()
-                print(f"[Sanity] mean |Δpred| (train) = {mv:.6f}")
+        B = gt.size(0)
+        t = torch.randint(0, self.diffusion.num_timesteps, (B,), device=self.device)
 
-        self.train_losses.append(loss.item())
-        self.log("train/loss", loss, prog_bar=True, on_step=True)
+        pred_bjct, target_bjct = self._diffuse_once(gt, t, cond)
+        loss_main = torch.nn.functional.mse_loss(pred_bjct, target_bjct)
+
+        # velocity / acceleration
+        pred_btjc = self.bjct_to_btjc(pred_bjct)
+
+        loss_vel = torch.tensor(0.0, device=self.device)
+        loss_acc = torch.tensor(0.0, device=self.device)
+
+        if pred_btjc.size(1) > 1:
+            v_pred = pred_btjc[:, 1:] - pred_btjc[:, :-1]
+            v_gt   = gt[:, 1:]         - gt[:, :-1]
+            loss_vel = torch.nn.functional.l1_loss(v_pred, v_gt)
+
+            if v_pred.size(1) > 1:
+                a_pred = v_pred[:, 1:] - v_pred[:, :-1]
+                a_gt   = v_gt[:, 1:]   - v_gt[:, :-1]
+                loss_acc = torch.nn.functional.l1_loss(a_pred, a_gt)
+
+        loss = loss_main + 0.5 * loss_vel + 0.25 * loss_acc
+
+        self.log_dict({
+            "train/loss": loss,
+            "train/mse": loss_main,
+            "train/vel": loss_vel,
+            "train/acc": loss_acc,
+        }, prog_bar=True)
+
         return loss
 
+    #  Validation Step
+    @torch.no_grad()
     def validation_step(self, batch, _):
-        cond = batch["conditions"]
-        fut  = sanitize_btjc(batch["data"])
-        past = sanitize_btjc(cond["input_pose"])
-        mask = self._make_mask_bt(cond["target_mask"])
-        sign = cond["sign_image"].float()
-        ts   = torch.zeros(fut.size(0), dtype=torch.long, device=fut.device)
-        
-        T = fut.size(1)
-        in_seq = 0.20 * torch.randn_like(fut) + 0.20 * self._time_ramp(T, fut.device)
-        pred = self.forward(in_seq, ts, past, sign)
+        cond_raw  = batch["conditions"]
+        gt_btjc   = sanitize_btjc(batch["data"])
+        past_btjc = sanitize_btjc(cond_raw["input_pose"])
+        mask_bt   = cond_raw.get("target_mask", None)
+        sign_img  = cond_raw["sign_image"].float()
 
-        loss_pos = masked_mse(pred, fut, mask)
-        if fut.size(1) > 1:
-            vel_mask = mask[:, 1:]
-            loss_vel = masked_mse(pred[:,1:]-pred[:,:-1], fut[:,1:]-fut[:,:-1], vel_mask)
-            loss = loss_pos + 1 * loss_vel
-        else:
-            loss = loss_pos
+        gt   = self.normalize(gt_btjc)
+        past = self.normalize(past_btjc)[:, -gt.size(1):]
+        cond = {"input_pose": past, "sign_image": sign_img}
 
-        dtw  = masked_dtw(pred, fut, mask)
+        B = gt.size(0)
+        t = torch.randint(0, self.diffusion.num_timesteps, (B,), device=self.device)
 
-        if self.global_step == 0:
-            with torch.no_grad():
-                mv = (pred[:,1:]-pred[:,:-1]).abs().mean().item()
-                print(f"[Sanity] mean |Δpred| (val) = {mv:.6f}")
+        pred_bjct, _ = self._diffuse_once(gt, t, cond)
+        loss_main = torch.nn.functional.mse_loss(pred_bjct, gt)
 
-        self.val_losses.append(loss.item())
-        self.val_dtws.append(dtw.item())
-        self.log("val/loss", loss, prog_bar=True)
-        self.log("val/dtw",  dtw,  prog_bar=False)
+        self.log("val/mse", loss_main, prog_bar=True)
+
+        if self.pred_target == "x0":
+            pred_btjc = self.bjct_to_btjc(pred_bjct)
+
+            if mask_bt is None:
+                mask_use = torch.ones(gt.shape[:2], device=gt.device)
+            elif mask_bt.dim() == 2:
+                mask_use = mask_bt.float()
+            else:
+                mask_use = (mask_bt.sum((2,3)) > 0).float()
+
+            dtw_val = masked_dtw(
+                self.unnormalize(pred_btjc),
+                self.unnormalize(gt),
+                mask_use
+            )
+            self.log("val/dtw", dtw_val, prog_bar=True)
+
+        return loss_main
 
     @torch.no_grad()
-    def generate_full_sequence(self, past_btjc, sign_img, target_mask=None, target_len=None):
-        """
-        Predict the entire future segment in one forward pass (per sample length).
-        - If `target_len` is None, infer per-sample Tf from `target_mask`.
-        - Supports dynamic window (different Tf per sample).
-        """
-        print("[GEN/full] ENTER generate_full_sequence", flush=True)
+    def sample_autoregressive_fast(
+        self, past_btjc, sign_img, future_len=20, chunk=1, guidance_scale=None
+    ):
         self.eval()
-        ctx  = sanitize_btjc(past_btjc).to(self.device)     # [B,Tp,J,C]
-        sign = sign_img.to(self.device)
-        B, _, J, C = ctx.shape
+        device = self.device
 
-        if target_len is not None:
-            if isinstance(target_len, (int, float)):
-                tf_list = [int(target_len)] * B
-            elif torch.is_tensor(target_len):
-                tf_list = target_len.view(-1).to(torch.long).cpu().tolist()
-            else:
-                tf_list = [int(x) for x in target_len]
-        else:
-            assert target_mask is not None, "Need target_len or target_mask"
-            mask_bt = self._make_mask_bt(target_mask).to(self.device)      # [B,T]
-            tf_list = mask_bt.sum(dim=1).to(torch.long).view(-1).cpu().tolist()
+        if guidance_scale is None:
+            guidance_scale = self.guidance_scale
 
-        outs = []
-        for b in range(B):
-            Tf = max(1, int(tf_list[b]))
-            t  = torch.linspace(0, 1, steps=Tf, device=self.device).view(1, Tf, 1, 1)
-            x_query = 0.20 * torch.randn((1, Tf, J, C), device=self.device) + 0.20 * t
-            ts = torch.zeros(1, dtype=torch.long, device=self.device)
-            print(f"[DBG] Tf={Tf}, t.min={float(t.min()):.3f}, t.max={float(t.max()):.3f}", flush=True)
-            print(f"[DBG] x_query.mean={float(x_query.mean()):.5f}, x_query.std={float(x_query.std()):.5f}", flush=True)
-            pred = self.forward(x_query, ts, ctx[b:b+1], sign[b:b+1])  # [1,Tf,J,C]
+        past_norm = self.normalize(past_btjc.to(device))
+        sign = sign_img.to(device)
 
-            if Tf > 1:
-                dv = (pred[:, 1:, :, :2] - pred[:, :-1, :, :2]).abs().mean().item()
-                print(f"[GEN/full] sample {b}, Tf={Tf}, mean|Δpred| BEFORE-CPU = {dv:.6f}", flush=True)
-                tv = pred[:, :, :, :2].std(dim=1).mean().item()
-                print(f"[GEN/full] sample {b}, Tf={Tf}, mean|Δpred|={dv:.6f}, time-std={tv:.6f}", flush=True)
-            outs.append(pred)
+        B, Tp, J, C = past_norm.shape
+        frames = []
+        remain = int(future_len)
+        cur_hist = past_norm.clone()
 
-        return torch.cat(outs, dim=0)  # [B,Tf,J,C]
+        class _Wrapper(nn.Module):
+            def __init__(self, mdl): super().__init__(); self.m = mdl
+            def forward(self, x, t, **kw): return self.m.interface(x, t, kw["y"])
 
-    def on_fit_end(self):
-        os.makedirs(self.log_dir, exist_ok=True)
-        csv_path = os.path.join(self.log_dir, "minimal_metrics.csv")
-        with open(csv_path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["step", "train_loss", "val_loss", "val_dtw"])
-            max_len = max(len(self.train_losses), len(self.val_losses), len(self.val_dtws))
-            for i in range(max_len):
-                tr  = self.train_losses[i] if i < len(self.train_losses) else ""
-                vl  = self.val_losses[i]  if i < len(self.val_losses)  else ""
-                dv  = self.val_dtws[i]    if i < len(self.val_dtws)    else ""
-                w.writerow([i + 1, tr, vl, dv])
-        print(f"[on_fit_end] metrics saved to {csv_path}")
+        wrapped = _Wrapper(self.model)
+
+        while remain > 0:
+            n = min(chunk, remain)
+            bjct_shape = (B, J, C, n)
+
+            cond = {
+                "input_pose": self.btjc_to_bjct(cur_hist),
+                "sign_image": sign,
+            }
+
+            x_bjct = self.diffusion.p_sample_loop(
+                wrapped,
+                shape=bjct_shape,
+                model_kwargs={"y": cond},
+                clip_denoised=False,
+                progress=False,
+            )
+            x_btjc = self.bjct_to_btjc(x_bjct)
+            frames.append(x_btjc)
+
+            cur_hist = torch.cat([cur_hist, x_btjc], dim=1)
+            if cur_hist.size(1) > Tp:
+                cur_hist = cur_hist[:, -Tp:]
+
+            remain -= n
+
+        return torch.cat(frames, dim=1)
+
+    def on_train_start(self):
+        self.mean_pose = self.mean_pose.to(self.device)
+        self.std_pose  = self.std_pose.to(self.device)
+        print(f"[on_train_start] stats moved to {self.device}")
+
+    def on_predict_start(self):
+        self.mean_pose = self.mean_pose.to(self.device)
+        self.std_pose  = self.std_pose.to(self.device)
+        print(f"[on_predict_start] stats moved to {self.device}")
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
+
     
