@@ -60,7 +60,8 @@ def test_signwriting_to_pose_diffusion_fwd():
                    timesteps=timesteps,
                    past_motion=input_pose_seq,
                    signwriting_im_batch=sign_image)
-
+    if isinstance(output, tuple):
+        output = output[0]
     assert output.shape == x_t.shape
 
 
@@ -85,5 +86,6 @@ def test_signwriting_to_pose_diffusion_interface_with_conditional_input():
     output = model.interface(x=x_t,
                              timesteps=timesteps,
                              y=conditions)
-
+    if isinstance(output, tuple):
+        output = output[0]
     assert output.shape == x_t.shape
