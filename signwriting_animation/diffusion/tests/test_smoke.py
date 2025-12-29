@@ -1,5 +1,7 @@
 from pathlib import Path
-import sys, types, importlib
+import sys
+import types
+import importlib
 import torch
 import pytest
 
@@ -8,6 +10,27 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+# === Stub pose_evaluation (uses Python 3.12+ syntax incompatible with 3.10) ===
+stub_pe = types.ModuleType("pose_evaluation")
+stub_pe_metrics = types.ModuleType("pose_evaluation.metrics")
+stub_pe_dtw = types.ModuleType("pose_evaluation.metrics.dtw_metric")
+
+
+class DummyDTW:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_distance(self, *args, **kwargs):
+        return 0.0
+
+
+stub_pe_dtw.DTWDTAIImplementationDistanceMeasure = DummyDTW
+sys.modules["pose_evaluation"] = stub_pe
+sys.modules["pose_evaluation.metrics"] = stub_pe_metrics
+sys.modules["pose_evaluation.metrics.dtw_metric"] = stub_pe_dtw
+
+
+# === Stub core models ===
 class DummyModel:
     def __init__(self, *args, **kwargs):
         pass
@@ -20,6 +43,8 @@ stub_core_models = types.ModuleType("signwriting_animation.diffusion.core.models
 stub_core_models.SignWritingToPoseDiffusion = DummyModel
 sys.modules["signwriting_animation.diffusion.core.models"] = stub_core_models
 
+
+# === Stub matplotlib ===
 stub_mpl = types.ModuleType("matplotlib")
 stub_plt = types.ModuleType("matplotlib.pyplot")
 
@@ -44,6 +69,7 @@ stub_plt.switch_backend = _noop
 
 sys.modules.setdefault("matplotlib", stub_mpl)
 sys.modules["matplotlib.pyplot"] = stub_plt
+
 
 ml = importlib.import_module("signwriting_animation.scripts.minimal_loop")
 
