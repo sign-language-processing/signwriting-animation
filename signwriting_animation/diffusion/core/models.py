@@ -89,6 +89,7 @@ class SignWritingToPoseDiffusion(nn.Module):
         cond_mask_prob: Condition masking probability for classifier-free guidance
         t_past: Number of past frames for context
         t_future: Number of future frames to predict
+        freeze_clip: Whether to freeze CLIP parameters (default: True)
     """
     
     def __init__(self,
@@ -100,7 +101,8 @@ class SignWritingToPoseDiffusion(nn.Module):
                  dropout: float = 0.1,
                  cond_mask_prob: float = 0,
                  t_past: int = 40,
-                 t_future: int = 20):
+                 t_future: int = 20,
+                 freeze_clip: bool = True):
         super().__init__()
 
         self.num_keypoints = num_keypoints
@@ -121,7 +123,9 @@ class SignWritingToPoseDiffusion(nn.Module):
         )
 
         # SignWriting image encoder (CLIP-based)
-        self.embed_signwriting = EmbedSignWriting(num_latent_dims, embedding_arch)
+        self.embed_signwriting = EmbedSignWriting(
+            num_latent_dims, embedding_arch, freeze_clip=freeze_clip
+        )
 
         # Timestep encoder using CAMDM TimestepEmbedder
         self.sequence_pos_encoder = PositionalEncoding(num_latent_dims, dropout)
@@ -135,7 +139,7 @@ class SignWritingToPoseDiffusion(nn.Module):
         )
 
         # === Output Positional Embeddings ===
-        self.output_pos_embed = nn.Embedding(t_future, num_latent_dims)
+        self.output_pos_embed = nn.Embedding(512, num_latent_dims)
 
         # === Frame Decoder ===
         decoder_input_dim = num_latent_dims * 3  # context + xt_emb + pos_emb
@@ -233,13 +237,22 @@ class EmbedSignWriting(nn.Module):
     Args:
         num_latent_dims: Output embedding dimension
         embedding_arch: CLIP model architecture to use
+        freeze_clip: Whether to freeze CLIP parameters (default: True for backward compatibility)
+                     Set to False to allow CLIP to learn SignWriting-specific features
     """
-    
-    def __init__(self, num_latent_dims: int, embedding_arch: str = 'openai/clip-vit-base-patch32'):
+
+    def __init__(self, 
+                 num_latent_dims: int, 
+                 embedding_arch: str = 'openai/clip-vit-base-patch32',
+                 freeze_clip: bool = True):
         super().__init__()
         self.model = CLIPModel.from_pretrained(embedding_arch)
-        self.proj = None
 
+        if freeze_clip:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+        self.proj = None
         # Project to target dimension if needed
         if (num_embedding_dims := self.model.visual_projection.out_features) != num_latent_dims:
             self.proj = nn.Linear(num_embedding_dims, num_latent_dims)
@@ -258,4 +271,3 @@ class EmbedSignWriting(nn.Module):
         if self.proj is not None:
             embeddings_batch = self.proj(embeddings_batch)
         return embeddings_batch
-
