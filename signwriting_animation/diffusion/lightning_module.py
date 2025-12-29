@@ -209,6 +209,7 @@ class LitDiffusion(pl.LightningModule):
         acc_weight: float = 0.5,
         t_past: int = 40,
         t_future: int = 20,
+        freeze_clip: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -230,6 +231,7 @@ class LitDiffusion(pl.LightningModule):
             num_dims_per_keypoint=num_dims,
             t_past=t_past,
             t_future=t_future,
+            freeze_clip=freeze_clip,
         )
 
         # Create Gaussian diffusion process with cosine schedule
