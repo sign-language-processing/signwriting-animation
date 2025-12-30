@@ -31,10 +31,13 @@ column_limit = 120
 
 [tool.pylint]
 max-line-length = 120
+ignore-paths = ["signwriting_animation/translation"]
 disable = [
     "C0114", # Missing module docstring
     "C0115", # Missing class docstring
     "C0116", # Missing function or method docstring
+    "R0913", # Too many arguments
+    "R0917", # Too many positional arguments
 ]
 
 [tool.setuptools]
