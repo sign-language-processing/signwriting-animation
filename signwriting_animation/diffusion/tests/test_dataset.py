@@ -6,7 +6,7 @@ from signwriting_animation.data.data_loader import DynamicPosePredictionDataset
 def pose_dataset():
     num_past_frames_max = 8
     num_future_frames_max = 5
-    num_keypoints = 586
+    num_keypoints = 178  # After reduce_holistic (was 586)
     num_dims_per_keypoint = 3
 
     dataset = DynamicPosePredictionDataset(
