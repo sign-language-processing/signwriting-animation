@@ -8,6 +8,7 @@ from signwriting_animation.diffusion.core.models import SignWritingToPoseDiffusi
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
+
 def make_sample(signwriting_str, pose_val, past_motion_val, clip_processor,
                 num_past_frames=10, num_keypoints=21, num_dims=3):
     """
@@ -23,6 +24,7 @@ def make_sample(signwriting_str, pose_val, past_motion_val, clip_processor,
     pose_val_tensor = torch.tensor(pose_val, dtype=torch.float32)
     return x, timesteps, past_motion, sw_img, pose_val_tensor
 
+
 class LightningOverfitModel(pl.LightningModule):
     """
     PyTorch Lightning wrapper for overfit sanity check on a SignWriting-to-Pose diffusion model.
@@ -37,7 +39,10 @@ class LightningOverfitModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, timesteps, past_motion, sw_img, val = batch
-        output, _ = self(x, timesteps, past_motion, sw_img)
+        output = self(x, timesteps, past_motion, sw_img)
+        # Model no longer returns tuple
+        if isinstance(output, tuple):
+            output = output[0]
         target = val.view(-1, 1, 1, 1).expand_as(output)
         loss = self.loss_fn(output, target)
         if batch_idx == 0 and self.current_epoch % 10 == 0:
@@ -46,6 +51,7 @@ class LightningOverfitModel(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=1e-4)
+
 
 class TestOverfitSanity(unittest.TestCase):
     @classmethod
@@ -66,13 +72,12 @@ class TestOverfitSanity(unittest.TestCase):
 
     def test_overfit(self):
         dataloader = DataLoader(self.samples, batch_size=4, shuffle=False)
+        # Use only valid parameters for new API
         model = SignWritingToPoseDiffusion(
             num_keypoints=21,
             num_dims_per_keypoint=3,
             embedding_arch=CLIP_MODEL_NAME,
             num_latent_dims=32,
-            ff_size=64,
-            num_layers=2,
             num_heads=2,
             dropout=0.0,
             cond_mask_prob=0
@@ -91,7 +96,10 @@ class TestOverfitSanity(unittest.TestCase):
         with torch.no_grad():
             for idx, batch in enumerate(test_dataloader):
                 x, timesteps, past_motion, sw_img, val = batch
-                output, _ = lightning_model(x, timesteps, past_motion, sw_img)
+                output = lightning_model(x, timesteps, past_motion, sw_img)
+                # Model no longer returns tuple
+                if isinstance(output, tuple):
+                    output = output[0]
                 rounded = torch.round(output)
                 target = val.view(-1, 1, 1, 1).expand_as(output)
                 print(f"[EVAL] Sample {idx+1} (target={val.item()})")
@@ -101,6 +109,7 @@ class TestOverfitSanity(unittest.TestCase):
                 print("Target:\n", target.cpu().numpy())
                 assert torch.allclose(rounded, target, atol=1e-1), f"Sample {idx+1} did not overfit!"
         print("All overfit sanity checks passed!")
+
 
 if __name__ == "__main__":
     unittest.main()
